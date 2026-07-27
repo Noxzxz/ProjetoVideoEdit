@@ -314,11 +314,13 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 from typing import Literal
 
+
 class Settings(BaseSettings):
     """
     Configuração central tipada do pipeline.
     Lê de variáveis de ambiente (.env) com fallback para defaults.
     """
+
     # Diretórios
     data_dir: str = "data"
     outputs_dir: str = "outputs"
@@ -361,6 +363,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+
 settings = Settings()
 ```
 
@@ -388,11 +391,13 @@ LOG_LEVEL=INFO
 ```python
 from enum import Enum
 
+
 class JobStatusEnum(str, Enum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     DONE = "DONE"
     FAILED = "FAILED"
+
 
 class AgentNameEnum(str, Enum):
     VIDEO_PROCESSING = "VIDEO_PROCESSING"
@@ -412,6 +417,7 @@ class AgentNameEnum(str, Enum):
 ```python
 from pydantic import BaseModel, ConfigDict
 
+
 class VideoMetadata(BaseModel):
     model_config = ConfigDict(strict=True)
     duration_seconds: float
@@ -420,6 +426,7 @@ class VideoMetadata(BaseModel):
     height: int
     codec: str
     has_audio_track: bool
+
 
 class VideoIngestResult(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -434,6 +441,7 @@ class VideoIngestResult(BaseModel):
 ```python
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
+
 class TranscriptSegment(BaseModel):
     model_config = ConfigDict(strict=True)
     id: int
@@ -441,6 +449,7 @@ class TranscriptSegment(BaseModel):
     end: float
     text: str
     confidence: float = Field(ge=0, le=1)
+
 
 class TranscriptRaw(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -454,6 +463,7 @@ class TranscriptRaw(BaseModel):
         self.full_text = " ".join(s.text.strip() for s in self.segments)
         return self
 
+
 class TranscriptCleaned(BaseModel):
     model_config = ConfigDict(strict=True)
     video_id: str
@@ -466,10 +476,12 @@ class TranscriptCleaned(BaseModel):
 ```python
 from pydantic import BaseModel, Field, ConfigDict
 
+
 class Chapter(BaseModel):
     model_config = ConfigDict(strict=True)
     timestamp_seconds: float
     title: str = Field(max_length=60)
+
 
 class ShortCandidate(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -478,11 +490,13 @@ class ShortCandidate(BaseModel):
     reason: str
     score: float = Field(ge=0, le=1)
 
+
 class ThumbnailPromptItem(BaseModel):
     model_config = ConfigDict(strict=True)
     prompt_pt: str
     prompt_en: str
     mood: str
+
 
 class SeoContent(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -491,11 +505,13 @@ class SeoContent(BaseModel):
     hashtags: list[str]
     chapters: list[Chapter]
 
+
 class SummaryContent(BaseModel):
     model_config = ConfigDict(strict=True)
     overview: str
     key_points: list[str]
     next_steps: list[str]
+
 
 class ContentIntelligenceResult(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -511,16 +527,19 @@ class ContentIntelligenceResult(BaseModel):
 ```python
 from pydantic import BaseModel, ConfigDict
 
+
 class CutInstruction(BaseModel):
     model_config = ConfigDict(strict=True)
     start: float
     end: float
+
 
 class CutList(BaseModel):
     model_config = ConfigDict(strict=True)
     video_id: str
     segments_to_keep: list[CutInstruction]
     total_duration_kept: float
+
 
 class EditResult(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -534,10 +553,12 @@ class EditResult(BaseModel):
 ```python
 from pydantic import BaseModel, ConfigDict
 
+
 class SubtitleStyle(BaseModel):
     model_config = ConfigDict(strict=True)
     max_words_per_line: int = 4
     font_size: int = 48
+
 
 class SubtitleResult(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -554,11 +575,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+
 class StageMetric(BaseModel):
     model_config = ConfigDict(strict=True)
     stage: str
     duration_seconds: float
     status: Literal["success", "skipped", "failed"]
+
 
 class ShortMetric(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -569,11 +592,13 @@ class ShortMetric(BaseModel):
     reason: str
     file_name: str | None = None
 
+
 class ThumbnailMetric(BaseModel):
     model_config = ConfigDict(strict=True)
     file_name: str
     sharpness_score: float
     selected_reason: str
+
 
 class AnalyticsReport(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -611,6 +636,7 @@ from typing import Literal
 # transcript.py, content.py etc.), que continuam com strict=True
 # porque não fazem esse round-trip disco->objeto.
 
+
 class StageResult(BaseModel):
     stage: str
     status: Literal["success", "skipped", "failed"]
@@ -619,6 +645,7 @@ class StageResult(BaseModel):
     duration_seconds: float = 0.0
     output_paths: list[Path] = Field(default_factory=list)
     error_message: str | None = None
+
 
 class PipelineState(BaseModel):
     video_hash: str
@@ -636,10 +663,7 @@ class PipelineState(BaseModel):
         return None
 
     def is_stage_done(self, stage_name: str) -> bool:
-        return any(
-            s.stage == stage_name and s.status == "success"
-            for s in self.stages
-        )
+        return any(s.stage == stage_name and s.status == "success" for s in self.stages)
 ```
 
 ---
@@ -651,46 +675,67 @@ class PipelineState(BaseModel):
 ```python
 class PipelineError(Exception):
     """Exceção base de todo o pipeline."""
+
     pass
+
 
 class VideoNotFoundError(PipelineError):
     """Arquivo de vídeo não encontrado ou inacessível."""
+
     pass
+
 
 class AudioExtractionError(PipelineError):
     """Falha ao extrair áudio do vídeo via FFmpeg."""
+
     pass
+
 
 class TranscriptionError(PipelineError):
     """Falha na transcrição com Whisper."""
+
     pass
+
 
 class CleaningError(PipelineError):
     """Falha na limpeza de transcrição."""
+
     pass
+
 
 class ContentGenerationError(PipelineError):
     """Falha na geração de conteúdo inteligente."""
+
     pass
+
 
 class TimelineValidationError(PipelineError):
     """Falha na validação de timeline."""
+
     pass
+
 
 class EditingError(PipelineError):
     """Falha na edição de vídeo."""
+
     pass
+
 
 class ExportError(PipelineError):
     """Falha na exportação de artefatos."""
+
     pass
+
 
 class ExternalServiceError(PipelineError):
     """Serviço externo (Ollama, FFmpeg) indisponível ou respondeu com erro."""
+
     pass
+
 
 class PreflightError(PipelineError):
     """Pre-flight check detectou ambiente inadequado."""
+
     pass
 ```
 
@@ -702,15 +747,14 @@ import logging.handlers
 from pathlib import Path
 from config.settings import settings
 
+
 def setup_logging(log_level: str | None = None) -> None:
     level = log_level or settings.log_level
     log_dir = Path(settings.logs_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "pipeline.log"
 
-    formatter = logging.Formatter(
-        "[%(asctime)s] %(levelname)s %(name)s - %(message)s"
-    )
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s %(name)s - %(message)s")
 
     # Console
     console_handler = logging.StreamHandler()
@@ -738,6 +782,7 @@ from config.settings import Settings
 from shared.exceptions import PreflightError
 
 logger = logging.getLogger(__name__)
+
 
 def run_preflight_checks() -> list[str]:
     """
@@ -774,6 +819,7 @@ def run_preflight_checks() -> list[str]:
     # 4. Modelo LLM disponível
     if data:
         import json
+
         models = json.loads(data).get("models", [])
         model_names = [m.get("name", "") for m in models]
         if settings.ollama_model not in model_names:
@@ -790,6 +836,7 @@ def run_preflight_checks() -> list[str]:
     # 6. Espaço em disco
     try:
         import shutil
+
         free = shutil.disk_usage(settings.data_dir).free
         if free < 5 * 1024 * 1024 * 1024:
             errors.append("Espaço em disco insuficiente. Libere pelo menos 5GB.")
@@ -800,6 +847,7 @@ def run_preflight_checks() -> list[str]:
     if settings.whisper_device == "cuda":
         try:
             import torch
+
             if not torch.cuda.is_available():
                 logger.warning("GPU não detectada. Whisper usará CPU (mais lento).")
         except ImportError:
@@ -813,6 +861,7 @@ def run_preflight_checks() -> list[str]:
         errors.append(f"Prompts obrigatórios ausentes: {missing}")
 
     return errors
+
 
 class PreFlightCheck:
     """Wrapper em classe para compatibilidade com CLI/Runner."""
@@ -838,6 +887,7 @@ from config.settings import settings
 
 Base = declarative_base()
 
+
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
     id = Column(Integer, primary_key=True)
@@ -847,6 +897,7 @@ class PipelineRun(Base):
     started_at = Column(DateTime, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
     total_duration_seconds = Column(Float, nullable=True)
+
 
 class AgentMetric(Base):
     __tablename__ = "agent_metrics"
@@ -859,10 +910,12 @@ class AgentMetric(Base):
     status = Column(String, nullable=False)
     error_message = Column(String, nullable=True)
 
+
 def init_db():
     engine = create_engine(f"sqlite:///{settings.sqlite_path}")
     Base.metadata.create_all(engine)
     return engine
+
 
 Session = sessionmaker()
 ```
@@ -873,6 +926,7 @@ Session = sessionmaker()
 from datetime import datetime
 from sqlalchemy.orm import Session as SqlSession
 from shared.db.database import init_db, PipelineRun, AgentMetric
+
 
 class AnalyticsRepository:
     def __init__(self):
@@ -932,7 +986,12 @@ class AnalyticsRepository:
 
     def get_run_history(self, limit: int = 20) -> list[PipelineRun]:
         with SqlSession(self.engine) as session:
-            return session.query(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(limit).all()
+            return (
+                session.query(PipelineRun)
+                .order_by(PipelineRun.started_at.desc())
+                .limit(limit)
+                .all()
+            )
 ```
 
 ---
@@ -946,6 +1005,7 @@ import hashlib
 from pathlib import Path
 from config.settings import settings
 
+
 def compute_video_hash(video_path: Path) -> str:
     """Calcula SHA-256 do arquivo em blocos de 1MB. Retorna hex de 16 chars (64 bits)."""
     h = hashlib.sha256()
@@ -954,8 +1014,10 @@ def compute_video_hash(video_path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()[:16]
 
+
 def get_cache_dir(video_hash: str) -> Path:
     return Path(settings.cache_dir) / video_hash
+
 
 def get_video_hash_from_id(video_id: str) -> str:
     """
@@ -979,15 +1041,18 @@ import json
 import os
 from pathlib import Path
 
+
 def ensure_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
 
 def load_json(path: Path) -> dict | None:
     if not path.exists():
         return None
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
 
 def save_json(path: Path, data: dict) -> None:
     ensure_dir(path.parent)
@@ -1006,6 +1071,7 @@ def seconds_to_hms(seconds: float) -> str:
     s = int(seconds % 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
 
+
 def seconds_to_srt_timestamp(seconds: float) -> str:
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
@@ -1013,12 +1079,14 @@ def seconds_to_srt_timestamp(seconds: float) -> str:
     ms = int((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
+
 def seconds_to_vtt_timestamp(seconds: float) -> str:
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
     ms = int((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
 
 def hms_to_seconds(hms: str) -> float:
     parts = hms.strip().split(":")
@@ -1036,12 +1104,14 @@ def hms_to_seconds(hms: str) -> float:
 ```python
 import re
 
+
 def slugify_filename(filename: str) -> str:
     name = filename.rsplit(".", 1)[0] if "." in filename else filename
     name = name.lower()
     name = re.sub(r"[^a-z0-9]+", "-", name)
     name = re.sub(r"-+", "-", name)
     return name.strip("-")
+
 
 def generate_video_id(filename: str, video_hash: str) -> str:
     """
@@ -1155,14 +1225,19 @@ from shared.exceptions import VideoNotFoundError, AudioExtractionError, EditingE
 
 logger = logging.getLogger(__name__)
 
+
 def get_video_metadata(video_path: Path) -> VideoMetadata:
     if not video_path.exists():
         raise VideoNotFoundError(f"Arquivo não encontrado: {video_path}")
 
     cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
-        "-show_format", "-show_streams",
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
         str(video_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1170,6 +1245,7 @@ def get_video_metadata(video_path: Path) -> VideoMetadata:
         raise AudioExtractionError(f"ffprobe falhou: {result.stderr}")
 
     import json
+
     data = json.loads(result.stdout)
     streams = data.get("streams", [])
     format_info = data.get("format", {})
@@ -1194,15 +1270,21 @@ def get_video_metadata(video_path: Path) -> VideoMetadata:
         has_audio_track=audio_stream is not None,
     )
 
+
 def extract_audio(video_path: Path, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "ffmpeg", "-y",
-        "-i", str(video_path),
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
         "-vn",
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
         str(output_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1211,8 +1293,10 @@ def extract_audio(video_path: Path, output_path: Path) -> Path:
     logger.info(f"Áudio extraído: {output_path}")
     return output_path
 
+
 def get_video_duration(video_path: Path) -> float:
     return get_video_metadata(video_path).duration_seconds
+
 
 def apply_cut_list(video_path: Path, cut_list: CutList, output_path: Path) -> Path:
     """Corta e concatena trechos via FFmpeg."""
@@ -1225,23 +1309,34 @@ def apply_cut_list(video_path: Path, cut_list: CutList, output_path: Path) -> Pa
         for idx, cut in enumerate(cut_list.segments_to_keep):
             seg_path = temp_dir / f"temp_{idx:03d}.mp4"
             cmd = [
-                "ffmpeg", "-y",
-                "-ss", str(cut.start),
-                "-to", str(cut.end),
-                "-i", str(video_path),
-                "-c", "copy",
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(cut.start),
+                "-to",
+                str(cut.end),
+                "-i",
+                str(video_path),
+                "-c",
+                "copy",
                 str(seg_path),
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 # Fallback reencode
                 cmd = [
-                    "ffmpeg", "-y",
-                    "-ss", str(cut.start),
-                    "-to", str(cut.end),
-                    "-i", str(video_path),
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(cut.start),
+                    "-to",
+                    str(cut.end),
+                    "-i",
+                    str(video_path),
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
                     str(seg_path),
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1256,11 +1351,16 @@ def apply_cut_list(video_path: Path, cut_list: CutList, output_path: Path) -> Pa
                 f.write(f"file '{seg.resolve()}'\n")
 
         cmd = [
-            "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(list_file),
-            "-c", "copy",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-c",
+            "copy",
             str(output_path),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1275,6 +1375,7 @@ def apply_cut_list(video_path: Path, cut_list: CutList, output_path: Path) -> Pa
             f.unlink(missing_ok=True)
         temp_dir.rmdir()
 
+
 def extract_segment(
     video_path: Path,
     start_seconds: float,
@@ -1285,24 +1386,37 @@ def extract_segment(
     """Extrai um trecho do vídeo. Tenta -c copy primeiro."""
     duration = end_seconds - start_seconds
     cmd_copy = [
-        "ffmpeg", "-y",
-        "-ss", str(start_seconds),
-        "-t", str(duration),
-        "-i", str(video_path),
-        "-c", "copy",
-        "-avoid_negative_ts", "make_zero",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start_seconds),
+        "-t",
+        str(duration),
+        "-i",
+        str(video_path),
+        "-c",
+        "copy",
+        "-avoid_negative_ts",
+        "make_zero",
         str(output_path),
     ]
     result = subprocess.run(cmd_copy, capture_output=True, text=True)
     if result.returncode != 0:
         cmd_reenc = [
-            "ffmpeg", "-y",
-            "-ss", str(start_seconds),
-            "-t", str(duration),
-            "-i", str(video_path),
-            "-c:v", config.video_codec,
-            "-c:a", config.audio_codec,
-            "-preset", config.video_preset,
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start_seconds),
+            "-t",
+            str(duration),
+            "-i",
+            str(video_path),
+            "-c:v",
+            config.video_codec,
+            "-c:a",
+            config.audio_codec,
+            "-preset",
+            config.video_preset,
             str(output_path),
         ]
         result = subprocess.run(cmd_reenc, capture_output=True, text=True)
@@ -1326,6 +1440,7 @@ settings = Settings()
 
 _model: WhisperModel | None = None
 
+
 def _load_model() -> WhisperModel:
     global _model
     if _model is None:
@@ -1336,6 +1451,7 @@ def _load_model() -> WhisperModel:
             compute_type=compute_type,
         )
     return _model
+
 
 def transcribe(audio_path: Path, video_id: str) -> TranscriptRaw:
     if not audio_path.exists():
@@ -1352,13 +1468,15 @@ def transcribe(audio_path: Path, video_id: str) -> TranscriptRaw:
         segments: list[TranscriptSegment] = []
         for idx, seg in enumerate(segments_iter):
             confidence = min(1.0, max(0.0, 1.0 + seg.avg_logprob))
-            segments.append(TranscriptSegment(
-                id=idx,
-                start=seg.start,
-                end=seg.end,
-                text=seg.text.strip(),
-                confidence=confidence,
-            ))
+            segments.append(
+                TranscriptSegment(
+                    id=idx,
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text.strip(),
+                    confidence=confidence,
+                )
+            )
 
         return TranscriptRaw(
             video_id=video_id,
@@ -1367,6 +1485,7 @@ def transcribe(audio_path: Path, video_id: str) -> TranscriptRaw:
         )
     except Exception as exc:
         raise TranscriptionError(f"Falha na transcrição: {exc}") from exc
+
 
 def unload_whisper_model() -> None:
     """
@@ -1386,6 +1505,7 @@ def unload_whisper_model() -> None:
         _model = None
         try:
             import torch
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except ImportError:
@@ -1403,6 +1523,7 @@ from shared.exceptions import ExternalServiceError
 
 logger = logging.getLogger(__name__)
 settings = Settings()
+
 
 def generate(
     system_prompt: str,
@@ -1454,6 +1575,7 @@ import numpy as np
 from shared.exceptions import VideoNotFoundError
 
 logger = logging.getLogger(__name__)
+
 
 def extract_candidate_frames(
     video_path: Path,
@@ -1556,6 +1678,7 @@ from utils.file_utils import ensure_dir, load_json, save_json
 
 logger = logging.getLogger(__name__)
 
+
 class VideoProcessingAgent:
     def __init__(self):
         pass
@@ -1620,6 +1743,7 @@ from utils.hash_utils import get_cache_dir, get_video_hash_from_id
 from utils.file_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
+
 
 class SpeechRecognitionAgent:
     def __init__(self):
@@ -1686,6 +1810,7 @@ FILLER_REGEX = re.compile("|".join(FILLER_PATTERNS), re.IGNORECASE)
 # CPU (Qwen2.5 3B) inviabiliza vídeos de 20-30min no hardware-alvo.
 CLEANING_BATCH_SIZE = 25
 
+
 def apply_regex_cleaning(text: str) -> str:
     """
     Remove preenchimentos vocais usando regex com word boundaries.
@@ -1695,6 +1820,7 @@ def apply_regex_cleaning(text: str) -> str:
     cleaned = FILLER_REGEX.sub("", text)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned if cleaned else text
+
 
 class TranscriptCleanerAgent:
     def __init__(self):
@@ -1764,7 +1890,9 @@ class TranscriptCleanerAgent:
                     original_len = len(pre_cleaned)
                     cleaned_len = len(llm_text)
                     if cleaned_len < original_len * 0.5 or cleaned_len > original_len * 2.0:
-                        logger.warning(f"Segmento {seg.id}: limpeza rejeitada por diferença de tamanho")
+                        logger.warning(
+                            f"Segmento {seg.id}: limpeza rejeitada por diferença de tamanho"
+                        )
                         llm_text = pre_cleaned
 
                 cleaned_by_id[seg.id] = TranscriptSegment(
@@ -1824,6 +1952,7 @@ from utils.file_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 
+
 class ContentIntelligenceAgent:
     def __init__(self):
         pass
@@ -1869,7 +1998,10 @@ class ContentIntelligenceAgent:
         except (json.JSONDecodeError, ExternalServiceError) as exc:
             # Retry com prompt de correção
             logger.warning(f"JSON malformado, tentando retry: {exc}")
-            retry_prompt = user_prompt + "\n\nATENÇÃO: A resposta anterior não era JSON válido. Responda APENAS em JSON válido."
+            retry_prompt = (
+                user_prompt
+                + "\n\nATENÇÃO: A resposta anterior não era JSON válido. Responda APENAS em JSON válido."
+            )
             try:
                 raw = generate(system_prompt, retry_prompt, json_mode=True, timeout=180)
                 data = json.loads(raw)
@@ -1915,11 +2047,14 @@ from utils.file_utils import load_json, save_json
 
 logger = logging.getLogger(__name__)
 
+
 class TimelineValidatorAgent:
     def __init__(self):
         pass
 
-    def run(self, content: ContentIntelligenceResult, video_duration_seconds: float, config: Settings) -> ContentIntelligenceResult:
+    def run(
+        self, content: ContentIntelligenceResult, video_duration_seconds: float, config: Settings
+    ) -> ContentIntelligenceResult:
         cache_dir = get_cache_dir(get_video_hash_from_id(content.video_id))
         cached = load_json(cache_dir / "timeline.json")
         if cached:
@@ -1962,9 +2097,9 @@ class TimelineValidatorAgent:
                 logger.warning(f"Short muito longo: {duration:.1f}s")
                 continue
 
-            valid_shorts.append(ShortCandidate(
-                start=start, end=end, reason=short.reason, score=short.score
-            ))
+            valid_shorts.append(
+                ShortCandidate(start=start, end=end, reason=short.reason, score=short.score)
+            )
 
         # Fallback se nenhum short válido
         if not valid_shorts and content.shorts:
@@ -1977,9 +2112,11 @@ class TimelineValidatorAgent:
             if end - start < config.shorts_min_duration_seconds:
                 end = start + config.shorts_min_duration_seconds
             end = min(end, video_duration_seconds)
-            valid_shorts.append(ShortCandidate(
-                start=start, end=end, reason=best.reason + " (ajustado)", score=best.score
-            ))
+            valid_shorts.append(
+                ShortCandidate(
+                    start=start, end=end, reason=best.reason + " (ajustado)", score=best.score
+                )
+            )
             logger.warning("Nenhum short válido gerado. Usando fallback.")
 
         valid_shorts.sort(key=lambda s: s.score, reverse=True)
@@ -1994,7 +2131,9 @@ class TimelineValidatorAgent:
         )
 
         save_json(cache_dir / "timeline.json", result.model_dump())
-        logger.info(f"Timeline validada: {len(valid_chapters)} capítulos, {len(valid_shorts)} shorts")
+        logger.info(
+            f"Timeline validada: {len(valid_chapters)} capítulos, {len(valid_shorts)} shorts"
+        )
         return result
 
     def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState):
@@ -2029,6 +2168,7 @@ from utils.slugify import generate_video_id
 from utils.file_utils import load_json, save_json, ensure_dir
 
 logger = logging.getLogger(__name__)
+
 
 def build_cut_list(
     transcript: TranscriptRaw,
@@ -2068,6 +2208,7 @@ def build_cut_list(
         segments_to_keep=kept,
         total_duration_kept=total_kept,
     )
+
 
 class VideoEditAgent:
     def __init__(self):
@@ -2131,6 +2272,7 @@ from utils.file_utils import load_json, save_json, ensure_dir
 
 logger = logging.getLogger(__name__)
 
+
 def split_into_caption_chunks(
     segments: list[TranscriptSegment],
     max_words_per_line: int,
@@ -2142,13 +2284,15 @@ def split_into_caption_chunks(
     for seg in segments:
         words = seg.text.split()
         if len(words) <= max_words_per_line:
-            chunks.append(TranscriptSegment(
-                id=chunk_id,
-                start=seg.start,
-                end=seg.end,
-                text=seg.text,
-                confidence=seg.confidence,
-            ))
+            chunks.append(
+                TranscriptSegment(
+                    id=chunk_id,
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text,
+                    confidence=seg.confidence,
+                )
+            )
             chunk_id += 1
             continue
 
@@ -2168,33 +2312,42 @@ def split_into_caption_chunks(
             chunk_start = seg.start + (total_duration * (start_word / len(words)))
             chunk_end = chunk_start + (total_duration * ratio)
 
-            chunks.append(TranscriptSegment(
-                id=chunk_id,
-                start=chunk_start,
-                end=chunk_end,
-                text=chunk_text,
-                confidence=seg.confidence,
-            ))
+            chunks.append(
+                TranscriptSegment(
+                    id=chunk_id,
+                    start=chunk_start,
+                    end=chunk_end,
+                    text=chunk_text,
+                    confidence=seg.confidence,
+                )
+            )
             chunk_id += 1
 
     return chunks
+
 
 def to_srt(chunks: list[TranscriptSegment]) -> str:
     lines = []
     for i, chunk in enumerate(chunks, start=1):
         lines.append(str(i))
-        lines.append(f"{seconds_to_srt_timestamp(chunk.start)} --> {seconds_to_srt_timestamp(chunk.end)}")
+        lines.append(
+            f"{seconds_to_srt_timestamp(chunk.start)} --> {seconds_to_srt_timestamp(chunk.end)}"
+        )
         lines.append(chunk.text)
         lines.append("")
     return "\n".join(lines)
 
+
 def to_vtt(chunks: list[TranscriptSegment]) -> str:
     lines = ["WEBVTT", ""]
     for chunk in chunks:
-        lines.append(f"{seconds_to_vtt_timestamp(chunk.start)} --> {seconds_to_vtt_timestamp(chunk.end)}")
+        lines.append(
+            f"{seconds_to_vtt_timestamp(chunk.start)} --> {seconds_to_vtt_timestamp(chunk.end)}"
+        )
         lines.append(chunk.text)
         lines.append("")
     return "\n".join(lines)
+
 
 class SubtitleStylingAgent:
     def __init__(self):
@@ -2256,6 +2409,7 @@ from utils.file_utils import load_json, save_json, ensure_dir
 
 logger = logging.getLogger(__name__)
 
+
 class ThumbnailFramesAgent:
     def __init__(self):
         pass
@@ -2307,6 +2461,7 @@ from utils.hash_utils import get_cache_dir
 from utils.file_utils import ensure_dir, load_json, save_json
 
 logger = logging.getLogger(__name__)
+
 
 class ShortsExtractorAgent:
     def __init__(self):
@@ -2363,10 +2518,7 @@ class ShortsExtractorAgent:
         output_dir = Path(config.outputs_dir) / video_id / "shorts"
         shorts_paths = self.run(source_video, content, output_dir, config)
 
-        save_json(
-            cache_dir / "shorts.json",
-            {"short_paths": [str(p) for p in shorts_paths]}
-        )
+        save_json(cache_dir / "shorts.json", {"short_paths": [str(p) for p in shorts_paths]})
         # NOTA: state.stages.append() é responsabilidade do PipelineRunner.
 ```
 
@@ -2388,6 +2540,7 @@ from utils.hash_utils import get_cache_dir
 from utils.slugify import generate_video_id
 
 logger = logging.getLogger(__name__)
+
 
 class PackagingAgent:
     def __init__(self):
@@ -2435,7 +2588,9 @@ class PackagingAgent:
         self._generate_report(state, output_dir, video_id)
 
         # 3. Gera analytics.json
-        analytics = self._build_analytics(video_path, video_hash, video_id, config, state, output_dir)
+        analytics = self._build_analytics(
+            video_path, video_hash, video_id, config, state, output_dir
+        )
         save_json(output_dir / "analytics.json", analytics.model_dump(mode="json"))
 
         # 4. Gera ZIP
@@ -2473,11 +2628,13 @@ class PackagingAgent:
             icon = "✅" if s.status == "success" else "⏭️" if s.status == "skipped" else "❌"
             lines.append(f"| {icon} | {s.stage} | {s.duration_seconds:.1f}s |")
 
-        lines.extend([
-            "",
-            "---",
-            "*Gerado automaticamente pelo Pipeline de Pós-Produção com IA*",
-        ])
+        lines.extend(
+            [
+                "",
+                "---",
+                "*Gerado automaticamente pelo Pipeline de Pós-Produção com IA*",
+            ]
+        )
 
         with open(output_dir / "report.md", "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
@@ -2509,25 +2666,29 @@ class PackagingAgent:
         # Shorts
         shorts_metrics = []
         for i, s in enumerate(content_data.get("shorts", []), start=1):
-            shorts_metrics.append(ShortMetric(
-                start=s["start"],
-                end=s["end"],
-                duration_seconds=round(s["end"] - s["start"], 2),
-                score=s.get("score", 0.0),
-                reason=s.get("reason", ""),
-                file_name=f"short_{i:02d}.mp4" if (output_dir / "shorts").exists() else None,
-            ))
+            shorts_metrics.append(
+                ShortMetric(
+                    start=s["start"],
+                    end=s["end"],
+                    duration_seconds=round(s["end"] - s["start"], 2),
+                    score=s.get("score", 0.0),
+                    reason=s.get("reason", ""),
+                    file_name=f"short_{i:02d}.mp4" if (output_dir / "shorts").exists() else None,
+                )
+            )
 
         # Thumbnails
         thumbs_metrics = []
         thumbs_dir = output_dir / "thumbnail_frames"
         if thumbs_dir.exists():
             for frame in sorted(thumbs_dir.glob("*.jpg")):
-                thumbs_metrics.append(ThumbnailMetric(
-                    file_name=frame.name,
-                    sharpness_score=0.0,
-                    selected_reason="heurística de histograma + blur",
-                ))
+                thumbs_metrics.append(
+                    ThumbnailMetric(
+                        file_name=frame.name,
+                        sharpness_score=0.0,
+                        selected_reason="heurística de histograma + blur",
+                    )
+                )
 
         return AnalyticsReport(
             video_hash=video_hash,
@@ -2586,6 +2747,7 @@ logger = logging.getLogger("pipeline.runner")
 
 StageHandler = Callable[[Path, str, Settings, PipelineState], None]
 
+
 class PipelineStage(Enum):
     PRE_FLIGHT = auto()
     VIDEO_PROCESSING = auto()
@@ -2603,6 +2765,7 @@ class PipelineStage(Enum):
     def ordered(cls) -> list["PipelineStage"]:
         return [s for s in cls if s != cls.PRE_FLIGHT]
 
+
 # Etapas mutuamente independentes: nenhuma delas lê a saída das outras
 # (todas partem apenas de cleaned.json / metadata.json / content.json,
 # já produzidos pelas etapas anteriores). Por isso podem rodar em
@@ -2610,11 +2773,14 @@ class PipelineStage(Enum):
 # isso reduz o tempo total do pipeline sem exigir nenhum framework de
 # orquestração adicional. São consecutivas na enumeração acima, o que
 # simplifica o agrupamento em _build_execution_plan().
-PARALLEL_GROUP: frozenset[PipelineStage] = frozenset({
-    PipelineStage.SUBTITLE_STYLING,
-    PipelineStage.THUMBNAIL_FRAMES,
-    PipelineStage.SHORTS_EXTRACTION,
-})
+PARALLEL_GROUP: frozenset[PipelineStage] = frozenset(
+    {
+        PipelineStage.SUBTITLE_STYLING,
+        PipelineStage.THUMBNAIL_FRAMES,
+        PipelineStage.SHORTS_EXTRACTION,
+    }
+)
+
 
 class PipelineRunner:
     def __init__(self, config: Settings, max_parallel_workers: int = 3):
@@ -2750,7 +2916,8 @@ class PipelineRunner:
 
         for group in plan:
             pending = [
-                stage for stage in group
+                stage
+                for stage in group
                 if not (state.is_stage_done(stage.name) and from_stage != stage)
             ]
             if not pending:
@@ -2772,7 +2939,9 @@ class PipelineRunner:
                 failures: list[StageResult] = []
                 with ThreadPoolExecutor(max_workers=self.max_parallel_workers) as executor:
                     futures = {
-                        executor.submit(self._run_single_stage, stage, video_path, video_hash, state): stage
+                        executor.submit(
+                            self._run_single_stage, stage, video_path, video_hash, state
+                        ): stage
                         for stage in pending
                     }
                     for future in as_completed(futures):
@@ -2820,19 +2989,22 @@ from agents.thumbnail_frames.agent import ThumbnailFramesAgent
 from agents.shorts_extractor.agent import ShortsExtractorAgent
 from agents.packaging.agent import PackagingAgent
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-video-pipeline",
         description="Pipeline de pós-produção de vídeo com IA (100% local)",
     )
     parser.add_argument(
-        "--video", "-v",
+        "--video",
+        "-v",
         type=Path,
         required=True,
         help="Caminho para o arquivo de vídeo de entrada.",
     )
     parser.add_argument(
-        "--config", "-c",
+        "--config",
+        "-c",
         type=Path,
         default=Path("config/config.yaml"),
         help="Caminho para o arquivo de configuração.",
@@ -2851,7 +3023,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ignora cache e reprocessa todas as etapas do zero.",
     )
     parser.add_argument(
-        "--output-dir", "-o",
+        "--output-dir",
+        "-o",
         type=Path,
         default=Path("outputs"),
         help="Diretório raiz para saídas finais.",
@@ -2862,6 +3035,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Loga em nível DEBUG.",
     )
     return parser
+
 
 def build_runner(config: Settings) -> PipelineRunner:
     runner = PipelineRunner(config=config)
@@ -2876,6 +3050,7 @@ def build_runner(config: Settings) -> PipelineRunner:
     runner.register(PipelineStage.SHORTS_EXTRACTION, ShortsExtractorAgent().run_stage)
     runner.register(PipelineStage.PACKAGING, PackagingAgent().run_stage)
     return runner
+
 
 def main():
     parser = build_parser()
@@ -2927,6 +3102,7 @@ def main():
     for s in state.stages:
         icon = "✅" if s.status == "success" else "❌"
         print(f"   {icon} {s.stage:<30} {s.duration_seconds:>6.1f}s")
+
 
 if __name__ == "__main__":
     main()
@@ -2997,6 +3173,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
 def build_runner(config: Settings) -> PipelineRunner:
     runner = PipelineRunner(config=config)
     runner.register(PipelineStage.VIDEO_PROCESSING, VideoProcessingAgent().run_stage)
@@ -3011,19 +3188,27 @@ def build_runner(config: Settings) -> PipelineRunner:
     runner.register(PipelineStage.PACKAGING, PackagingAgent().run_stage)
     return runner
 
+
 # ── Sidebar ──
 with st.sidebar:
     st.title("⚙️ Configuração")
     model_whisper = st.selectbox(
-        "Modelo Whisper", ["tiny", "base", "small", "medium"],
-        index=2, help="Small é o recomendado para GTX 1650 4GB.",
+        "Modelo Whisper",
+        ["tiny", "base", "small", "medium"],
+        index=2,
+        help="Small é o recomendado para GTX 1650 4GB.",
     )
     model_llm = st.selectbox(
-        "Modelo LLM", ["qwen2.5:3b", "gemma2:2b"], index=0,
+        "Modelo LLM",
+        ["qwen2.5:3b", "gemma2:2b"],
+        index=0,
     )
     shorts_max = st.slider(
         "Duração máxima dos Shorts (s)",
-        min_value=15, max_value=90, value=60, step=5,
+        min_value=15,
+        max_value=90,
+        value=60,
+        step=5,
     )
     st.markdown("---")
     st.info("Upload o vídeo na aba principal para começar.")
@@ -3037,9 +3222,7 @@ if "video_path" not in st.session_state:
     st.session_state.video_path = None
 
 # ── Abas ──
-tab_upload, tab_progress, tab_results = st.tabs([
-    "📤 Upload", "⏳ Progresso", "📊 Resultados"
-])
+tab_upload, tab_progress, tab_results = st.tabs(["📤 Upload", "⏳ Progresso", "📊 Resultados"])
 
 # ── Aba 1: Upload ──
 with tab_upload:
@@ -3099,8 +3282,7 @@ with tab_progress:
         for idx, stage in enumerate(stages):
             progress = idx / total_stages
             progress_bar.progress(
-                progress,
-                text=f"Executando: {stage.name.replace('_', ' ').title()}..."
+                progress, text=f"Executando: {stage.name.replace('_', ' ').title()}..."
             )
 
             with log_container:
@@ -3141,9 +3323,9 @@ with tab_results:
         if output_dir.exists():
             st.metric("Saídas em", str(output_dir))
 
-    r_tab_transcript, r_tab_shorts, r_tab_thumbs, r_tab_download = st.tabs([
-        "📝 Transcrição", "✂️ Shorts", "🖼️ Thumbnails", "📦 Download"
-    ])
+    r_tab_transcript, r_tab_shorts, r_tab_thumbs, r_tab_download = st.tabs(
+        ["📝 Transcrição", "✂️ Shorts", "🖼️ Thumbnails", "📦 Download"]
+    )
 
     with r_tab_transcript:
         cleaned_path = cache_dir / "cleaned.json"
@@ -3245,15 +3427,16 @@ import pytest
 from unittest.mock import patch, MagicMock
 from shared.preflight import run_preflight_checks
 
+
 def test_preflight_passes_with_mocked_tools():
-    with patch("subprocess.run") as mock_run, \
-         patch("urllib.request.urlopen") as mock_urlopen:
+    with patch("subprocess.run") as mock_run, patch("urllib.request.urlopen") as mock_urlopen:
         mock_run.return_value = MagicMock(returncode=0)
         mock_resp = MagicMock()
         mock_resp.read.return_value = b'{"models": [{"name": "qwen2.5:3b"}]}'
         mock_urlopen.return_value.__enter__.return_value = mock_resp
         errors = run_preflight_checks()
         assert errors == []
+
 
 def test_preflight_fails_without_ffmpeg():
     with patch("subprocess.run", side_effect=FileNotFoundError()):
@@ -3269,6 +3452,7 @@ from pathlib import Path
 from utils.hash_utils import compute_video_hash
 from utils.file_utils import save_json, load_json
 
+
 def test_same_file_same_hash(tmp_path):
     f = tmp_path / "test.txt"
     f.write_text("hello")
@@ -3277,12 +3461,14 @@ def test_same_file_same_hash(tmp_path):
     assert h1 == h2
     assert len(h1) == 16
 
+
 def test_different_files_different_hash(tmp_path):
     f1 = tmp_path / "a.txt"
     f2 = tmp_path / "b.txt"
     f1.write_text("hello")
     f2.write_text("world")
     assert compute_video_hash(f1) != compute_video_hash(f2)
+
 
 def test_save_and_load_json(tmp_path):
     path = tmp_path / "data.json"
@@ -3298,16 +3484,22 @@ def test_save_and_load_json(tmp_path):
 import pytest
 from agents.transcript_cleaner.agent import apply_regex_cleaning
 
+
 def test_regex_removes_fillers():
-    assert apply_regex_cleaning("hum eu acho que ah isso é importante") == "eu acho que isso é importante"
+    assert (
+        apply_regex_cleaning("hum eu acho que ah isso é importante")
+        == "eu acho que isso é importante"
+    )
     assert apply_regex_cleaning("ahn deixa eu ver") == "deixa eu ver"
     assert apply_regex_cleaning("ãhn não sei") == "não sei"
     assert apply_regex_cleaning("ehm talvez") == "talvez"
+
 
 def test_regex_preserves_meaningful_words():
     assert apply_regex_cleaning("esse tipo de coisa") == "esse tipo de coisa"
     assert apply_regex_cleaning("você é legal") == "você é legal"
     assert apply_regex_cleaning("né, isso é verdade") == "né, isso é verdade"
+
 
 def test_empty_after_regex_returns_original():
     assert apply_regex_cleaning("hum ah") == "hum ah"
@@ -3318,17 +3510,29 @@ def test_empty_after_regex_returns_original():
 ```python
 import pytest
 from agents.timeline_validator.agent import TimelineValidatorAgent
-from schemas.content import ContentIntelligenceResult, SeoContent, ShortCandidate, Chapter, SummaryContent
+from schemas.content import (
+    ContentIntelligenceResult,
+    SeoContent,
+    ShortCandidate,
+    Chapter,
+    SummaryContent,
+)
 from config.settings import Settings
+
 
 def test_validator_reorders_chapters():
     agent = TimelineValidatorAgent()
     content = ContentIntelligenceResult(
         video_id="test",
-        seo=SeoContent(title="T", description="D", hashtags=[], chapters=[
-            Chapter(timestamp_seconds=120, title="Cap 2"),
-            Chapter(timestamp_seconds=30, title="Cap 1"),
-        ]),
+        seo=SeoContent(
+            title="T",
+            description="D",
+            hashtags=[],
+            chapters=[
+                Chapter(timestamp_seconds=120, title="Cap 2"),
+                Chapter(timestamp_seconds=30, title="Cap 1"),
+            ],
+        ),
         shorts=[],
         thumbnail=[],
         summary=SummaryContent(overview="", key_points=[], next_steps=[]),
@@ -3338,6 +3542,7 @@ def test_validator_reorders_chapters():
     assert result.seo.chapters[0].timestamp_seconds == 0.0  # Introdução inserida
     assert result.seo.chapters[1].timestamp_seconds == 30.0
     assert result.seo.chapters[2].timestamp_seconds == 120.0
+
 
 def test_validator_discards_invalid_shorts():
     agent = TimelineValidatorAgent()

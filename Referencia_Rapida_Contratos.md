@@ -13,6 +13,7 @@ class JobStatusEnum(str, Enum):
     DONE = "DONE"
     FAILED = "FAILED"
 
+
 class AgentNameEnum(str, Enum):
     VIDEO_PROCESSING = "VIDEO_PROCESSING"
     SPEECH_RECOGNITION = "SPEECH_RECOGNITION"
@@ -29,7 +30,7 @@ class AgentNameEnum(str, Enum):
 ## 2. Vídeo (`schemas/video.py`)
 
 ```python
-class VideoMetadata(BaseModel):          # strict=True
+class VideoMetadata(BaseModel):  # strict=True
     duration_seconds: float
     fps: float
     width: int
@@ -37,7 +38,8 @@ class VideoMetadata(BaseModel):          # strict=True
     codec: str
     has_audio_track: bool
 
-class VideoIngestResult(BaseModel):      # strict=True
+
+class VideoIngestResult(BaseModel):  # strict=True
     video_id: str
     original_path: str
     audio_path: str
@@ -47,20 +49,22 @@ class VideoIngestResult(BaseModel):      # strict=True
 ## 3. Transcrição (`schemas/transcript.py`)
 
 ```python
-class TranscriptSegment(BaseModel):      # strict=True
+class TranscriptSegment(BaseModel):  # strict=True
     id: int
     start: float
     end: float
     text: str
     confidence: float = Field(ge=0, le=1)
 
-class TranscriptRaw(BaseModel):          # strict=True
+
+class TranscriptRaw(BaseModel):  # strict=True
     video_id: str
     language: str
     segments: list[TranscriptSegment]
-    full_text: str = ""                  # computado via @model_validator(mode="after")
+    full_text: str = ""  # computado via @model_validator(mode="after")
 
-class TranscriptCleaned(BaseModel):      # strict=True
+
+class TranscriptCleaned(BaseModel):  # strict=True
     video_id: str
     segments: list[TranscriptSegment]
     full_text_cleaned: str
@@ -69,31 +73,36 @@ class TranscriptCleaned(BaseModel):      # strict=True
 ## 4. Content Intelligence (`schemas/content.py`)
 
 ```python
-class Chapter(BaseModel):                # strict=True
+class Chapter(BaseModel):  # strict=True
     timestamp_seconds: float
     title: str = Field(max_length=60)
 
-class ShortCandidate(BaseModel):         # strict=True
+
+class ShortCandidate(BaseModel):  # strict=True
     start: float
     end: float
     reason: str
     score: float = Field(ge=0, le=1)
 
-class ThumbnailPromptItem(BaseModel):    # strict=True
+
+class ThumbnailPromptItem(BaseModel):  # strict=True
     prompt_pt: str
     prompt_en: str
     mood: str
 
-class SeoContent(BaseModel):             # strict=True
+
+class SeoContent(BaseModel):  # strict=True
     title: str = Field(max_length=100)
     description: str
     hashtags: list[str]
     chapters: list[Chapter]
 
-class SummaryContent(BaseModel):         # strict=True
+
+class SummaryContent(BaseModel):  # strict=True
     overview: str
     key_points: list[str]
     next_steps: list[str]
+
 
 class ContentIntelligenceResult(BaseModel):  # strict=True
     video_id: str
@@ -106,16 +115,18 @@ class ContentIntelligenceResult(BaseModel):  # strict=True
 ## 5. Edição (`schemas/edit.py`)
 
 ```python
-class CutInstruction(BaseModel):         # strict=True
+class CutInstruction(BaseModel):  # strict=True
     start: float
     end: float
 
-class CutList(BaseModel):                # strict=True
+
+class CutList(BaseModel):  # strict=True
     video_id: str
     segments_to_keep: list[CutInstruction]
     total_duration_kept: float
 
-class EditResult(BaseModel):             # strict=True
+
+class EditResult(BaseModel):  # strict=True
     video_id: str
     output_path: str
     cut_list: CutList
@@ -124,11 +135,12 @@ class EditResult(BaseModel):             # strict=True
 ## 6. Legendas (`schemas/subtitle.py`)
 
 ```python
-class SubtitleStyle(BaseModel):          # strict=True
+class SubtitleStyle(BaseModel):  # strict=True
     max_words_per_line: int = 4
     font_size: int = 48
 
-class SubtitleResult(BaseModel):         # strict=True
+
+class SubtitleResult(BaseModel):  # strict=True
     video_id: str
     srt_path: str
     vtt_path: str
@@ -137,12 +149,13 @@ class SubtitleResult(BaseModel):         # strict=True
 ## 7. Analytics (`schemas/analytics.py`)
 
 ```python
-class StageMetric(BaseModel):            # strict=True
+class StageMetric(BaseModel):  # strict=True
     stage: str
     duration_seconds: float
     status: Literal["success", "skipped", "failed"]
 
-class ShortMetric(BaseModel):            # strict=True
+
+class ShortMetric(BaseModel):  # strict=True
     start: float
     end: float
     duration_seconds: float
@@ -150,12 +163,14 @@ class ShortMetric(BaseModel):            # strict=True
     reason: str
     file_name: str | None = None
 
-class ThumbnailMetric(BaseModel):        # strict=True
+
+class ThumbnailMetric(BaseModel):  # strict=True
     file_name: str
     sharpness_score: float
     selected_reason: str
 
-class AnalyticsReport(BaseModel):        # strict=True
+
+class AnalyticsReport(BaseModel):  # strict=True
     video_hash: str
     video_name: str
     video_duration_seconds: float
@@ -176,7 +191,7 @@ class AnalyticsReport(BaseModel):        # strict=True
 > ⚠️ **Únicos dois schemas SEM `strict=True`** — persistidos em `cache/<hash>/pipeline_state.json` e recarregados a cada execução (suporte a `--from`/resume). `strict=True` quebraria a coerção `str→Path`/`str→datetime` que o JSON força no round-trip disco→objeto.
 
 ```python
-class StageResult(BaseModel):            # NÃO strict
+class StageResult(BaseModel):  # NÃO strict
     stage: str
     status: Literal["success", "skipped", "failed"]
     started_at: datetime
@@ -185,7 +200,8 @@ class StageResult(BaseModel):            # NÃO strict
     output_paths: list[Path] = Field(default_factory=list)
     error_message: str | None = None
 
-class PipelineState(BaseModel):          # NÃO strict
+
+class PipelineState(BaseModel):  # NÃO strict
     video_hash: str
     video_path: Path
     created_at: datetime
@@ -242,7 +258,8 @@ class Settings(BaseSettings):
     # Legendas
     max_words_per_line: int = 4
 
-settings = Settings()   # instância pronta para uso
+
+settings = Settings()  # instância pronta para uso
 ```
 
 **Regra de ouro:** `Settings` é **flat** — nunca aninhar campos.
@@ -252,18 +269,37 @@ settings = Settings()   # instância pronta para uso
 ## 10. Exceções (`shared/exceptions.py`)
 
 ```python
-class PipelineError(Exception): ...              # base — nunca redefinir em outro módulo
+class PipelineError(Exception): ...  # base — nunca redefinir em outro módulo
 
-class VideoNotFoundError(PipelineError): ...       # arquivo de vídeo ausente/inacessível
-class AudioExtractionError(PipelineError): ...     # falha ao extrair áudio via FFmpeg
-class TranscriptionError(PipelineError): ...       # falha na transcrição Whisper
-class CleaningError(PipelineError): ...            # falha na limpeza de transcrição
-class ContentGenerationError(PipelineError): ...   # falha no Content Intelligence
+
+class VideoNotFoundError(PipelineError): ...  # arquivo de vídeo ausente/inacessível
+
+
+class AudioExtractionError(PipelineError): ...  # falha ao extrair áudio via FFmpeg
+
+
+class TranscriptionError(PipelineError): ...  # falha na transcrição Whisper
+
+
+class CleaningError(PipelineError): ...  # falha na limpeza de transcrição
+
+
+class ContentGenerationError(PipelineError): ...  # falha no Content Intelligence
+
+
 class TimelineValidationError(PipelineError): ...  # falha na validação de timeline
-class EditingError(PipelineError): ...             # falha na edição de vídeo
-class ExportError(PipelineError): ...              # falha na exportação de artefatos
-class ExternalServiceError(PipelineError): ...     # Ollama/FFmpeg indisponível ou erro
-class PreflightError(PipelineError): ...           # ambiente inadequado no Pre-flight Check
+
+
+class EditingError(PipelineError): ...  # falha na edição de vídeo
+
+
+class ExportError(PipelineError): ...  # falha na exportação de artefatos
+
+
+class ExternalServiceError(PipelineError): ...  # Ollama/FFmpeg indisponível ou erro
+
+
+class PreflightError(PipelineError): ...  # ambiente inadequado no Pre-flight Check
 ```
 
 ---
@@ -273,30 +309,41 @@ class PreflightError(PipelineError): ...           # ambiente inadequado no Pre-
 Todo agente implementa **dois métodos**: `run()` (lógica de domínio pura/testável) e `run_stage()` (adapter que integra com cache/estado — chamado pelo `PipelineRunner`). `run_stage()` **nunca** faz `state.stages.append(...)` — isso é responsabilidade exclusiva do `PipelineRunner`.
 
 ```python
-def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState) -> None: ...
+def run_stage(
+    self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+) -> None: ...
 ```
 
 ### 11.1 `VideoProcessingAgent` — `agents/video_processing/agent.py`
 ```python
 class VideoProcessingAgent:
     def run(self, video_path: str) -> VideoIngestResult: ...
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.2 `SpeechRecognitionAgent` — `agents/speech_recognition/agent.py`
 ```python
 class SpeechRecognitionAgent:
     def run(self, video_id: str, audio_path: str) -> TranscriptRaw: ...
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.3 `TranscriptCleanerAgent` — `agents/transcript_cleaner/agent.py`
 ```python
-def apply_regex_cleaning(text: str) -> str: ...   # função pura de módulo, lista fechada + \b
+def apply_regex_cleaning(text: str) -> str: ...  # função pura de módulo, lista fechada + \b
+
 
 class TranscriptCleanerAgent:
-    def run(self, transcript: TranscriptRaw) -> TranscriptCleaned: ...   # batches de 25 segmentos/chamada
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run(
+        self, transcript: TranscriptRaw
+    ) -> TranscriptCleaned: ...  # batches de 25 segmentos/chamada
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.4 `ContentIntelligenceAgent` — `agents/content_intelligence/agent.py`
@@ -304,7 +351,9 @@ class TranscriptCleanerAgent:
 class ContentIntelligenceAgent:
     def _format_transcript(self, transcript_data: dict, max_segments: int = 400) -> str: ...
     def run(self, transcript: dict, video_duration_seconds: float) -> ContentIntelligenceResult: ...
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.5 `TimelineValidatorAgent` — `agents/timeline_validator/agent.py`
@@ -316,7 +365,9 @@ class TimelineValidatorAgent:
         video_duration_seconds: float,
         config: Settings,
     ) -> ContentIntelligenceResult: ...
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.6 `VideoEditAgent` — `agents/video_edit/agent.py`
@@ -343,7 +394,9 @@ class SubtitleStylingAgent:
 ```python
 class ThumbnailFramesAgent:
     def run(self, video_id: str, original_video_path: str, config: Settings) -> list[Path]: ...
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.9 `ShortsExtractorAgent` — `agents/shorts_extractor/agent.py`
@@ -356,7 +409,9 @@ class ShortsExtractorAgent:
         output_dir: Path,
         config: Settings,
     ) -> list[Path]: ...
-    def run_stage(self, video_path: Path, video_hash: str, config: Settings, state: PipelineState): ...
+    def run_stage(
+        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
+    ): ...
 ```
 
 ### 11.10 `PackagingAgent` — `agents/packaging/agent.py`
@@ -397,7 +452,7 @@ def extract_segment(
 ### 12.2 `services/whisper_service.py`
 ```python
 def transcribe(audio_path: Path, video_id: str) -> TranscriptRaw: ...
-def unload_whisper_model() -> None: ...   # libera VRAM — chamado ao fim de SPEECH_RECOGNITION
+def unload_whisper_model() -> None: ...  # libera VRAM — chamado ao fim de SPEECH_RECOGNITION
 ```
 
 ### 12.3 `services/ollama_service.py`
@@ -429,18 +484,23 @@ def extract_candidate_frames(
 # utils/hash_utils.py
 def compute_video_hash(video_path: Path) -> str: ...
 def get_cache_dir(video_hash: str) -> Path: ...
-def get_video_hash_from_id(video_id: str) -> str: ...   # ÚNICA fonte de verdade do hash — usar sempre, nunca reimplementar
+def get_video_hash_from_id(
+    video_id: str,
+) -> str: ...  # ÚNICA fonte de verdade do hash — usar sempre, nunca reimplementar
+
 
 # utils/file_utils.py
 def ensure_dir(path: Path) -> Path: ...
 def load_json(path: Path) -> dict | None: ...
-def save_json(path: Path, data: dict) -> None: ...       # atomicidade: escreve .tmp + os.replace()
+def save_json(path: Path, data: dict) -> None: ...  # atomicidade: escreve .tmp + os.replace()
+
 
 # utils/time_utils.py
 def seconds_to_hms(seconds: float) -> str: ...
 def seconds_to_srt_timestamp(seconds: float) -> str: ...
 def seconds_to_vtt_timestamp(seconds: float) -> str: ...
 def hms_to_seconds(hms: str) -> float: ...
+
 
 # utils/slugify.py
 def slugify_filename(filename: str) -> str: ...
@@ -464,11 +524,12 @@ cache/<video_hash>/
 ## 14. Pre-flight Check (`shared/preflight.py`)
 
 ```python
-def run_preflight_checks() -> list[str]: ...   # retorna lista de problemas encontrados (vazia = OK)
+def run_preflight_checks() -> list[str]: ...  # retorna lista de problemas encontrados (vazia = OK)
+
 
 class PreFlightCheck:
     def __init__(self, config: Settings): ...
-    def run(self) -> None: ...                  # levanta PreflightError se ambiente inadequado
+    def run(self) -> None: ...  # levanta PreflightError se ambiente inadequado
 ```
 
 ---
@@ -499,6 +560,7 @@ class AnalyticsRepository:
 ```python
 StageHandler = Callable[[Path, str, Settings, PipelineState], None]
 
+
 class PipelineStage(Enum):
     PRE_FLIGHT = auto()
     VIDEO_PROCESSING = auto()
@@ -513,17 +575,22 @@ class PipelineStage(Enum):
     PACKAGING = auto()
 
     @classmethod
-    def ordered(cls) -> list["PipelineStage"]: ...   # todas exceto PRE_FLIGHT
+    def ordered(cls) -> list["PipelineStage"]: ...  # todas exceto PRE_FLIGHT
+
 
 # Rodam em paralelo via ThreadPoolExecutor (mutuamente independentes):
-PARALLEL_GROUP: frozenset[PipelineStage] = frozenset({
-    PipelineStage.SUBTITLE_STYLING,
-    PipelineStage.THUMBNAIL_FRAMES,
-    PipelineStage.SHORTS_EXTRACTION,
-})
+PARALLEL_GROUP: frozenset[PipelineStage] = frozenset(
+    {
+        PipelineStage.SUBTITLE_STYLING,
+        PipelineStage.THUMBNAIL_FRAMES,
+        PipelineStage.SHORTS_EXTRACTION,
+    }
+)
+
 
 class PipelineRunner:
     def __init__(self, config: Settings, max_parallel_workers: int = 3): ...
+
     # registro de StageResult em state.stages é responsabilidade EXCLUSIVA desta classe
 ```
 
