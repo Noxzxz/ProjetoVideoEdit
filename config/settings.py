@@ -33,9 +33,17 @@ class Settings(BaseSettings):
 
     shorts_max_duration_seconds: int = 60
     shorts_min_duration_seconds: int = 15
+    shorts_target_count: int = 4
+    shorts_min_spacing_seconds: float = 30.0
 
     silence_threshold_db: float = -35.0
     min_gap_seconds: float = 0.6
+    silence_pre_padding_ms: int = 100
+    silence_post_padding_ms: int = 150
+
+    marker_cut_word: str = "corte"
+    marker_resume_word: str = "inicio"
+
     video_codec: str = "libx264"
     audio_codec: str = "aac"
     video_preset: str = "fast"

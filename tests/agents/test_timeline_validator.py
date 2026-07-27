@@ -88,8 +88,8 @@ def test_no_change_when_valid():
         video_id="test",
         seo=SeoContent(title="", description="", hashtags=[], chapters=[]),
         shorts=[
-            ShortCandidate(start=10.0, end=25.0, reason="ok", score=0.9),  # 15s duration
-            ShortCandidate(start=30.0, end=50.0, reason="ok", score=0.8),  # 20s duration
+            ShortCandidate(start=10.0, end=25.0, reason="ok", score=0.9),
+            ShortCandidate(start=55.0, end=75.0, reason="ok", score=0.8),
         ],
         thumbnail=[],
         summary=SummaryContent(overview="", key_points=[], next_steps=[]),
@@ -105,10 +105,10 @@ def test_no_change_when_valid():
         ],
     )
     content.seo = seo
-    result = agent.run(content, video_duration_seconds=60.0)
+    result = agent.run(content, video_duration_seconds=90.0)
     assert len(result.shorts) == 2
     assert result.shorts[0].start == 10.0 and result.shorts[0].end == 25.0
-    assert result.shorts[1].start == 30.0 and result.shorts[1].end == 50.0
+    assert result.shorts[1].start == 55.0 and result.shorts[1].end == 75.0
     assert len(result.seo.chapters) == 3
     assert result.seo.chapters[0].timestamp_seconds == 5.0
     assert result.seo.chapters[1].timestamp_seconds == 20.0

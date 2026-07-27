@@ -10,29 +10,54 @@ from utils.hash_utils import get_cache_dir
 logger = logging.getLogger(__name__)
 
 
+def _snap_to_phrase_boundary(
+    timestamp: float,
+    segments: list[dict],
+    direction: str = "nearest",
+) -> float:
+    if not segments:
+        return timestamp
+
+    best = timestamp
+    min_dist = float("inf")
+    for seg in segments:
+        s = seg.get("start", 0)
+        e = seg.get("end", 0)
+        for boundary in (s, e):
+            if direction == "left" and boundary > timestamp:
+                continue
+            if direction == "right" and boundary < timestamp:
+                continue
+            dist = abs(boundary - timestamp)
+            if dist < min_dist:
+                min_dist = dist
+                best = boundary
+    return best
+
+
 class TimelineValidatorAgent:
     def run(
         self,
         content: ContentIntelligenceResult,
         video_duration_seconds: float,
+        transcript: list[dict] | None = None,
     ) -> ContentIntelligenceResult:
         """Valida e corrige timestamps (shorts e capítulos) antes do corte de vídeo real.
 
         Regras:
         1. Shorts: duração em [shorts_min_duration_seconds, shorts_max_duration_seconds]
         2. Capítulos: timestamp_em ordem crescente, dentro da duração do vídeo
-        3. Sem overlaps entre shorts/capítulos (shorts têm precedência, capítulos são absolutos)
-        4. Todos os timestamps >= 0, < video_duration_seconds
+        3. Shorts respeitam espaçamento mínimo (shorts_min_spacing_seconds)
+        4. Shorts com snap para limite de frase mais próximo na transcrição limpa
+        5. Todos os timestamps >= 0, < video_duration_seconds
 
         Retorna: novo ContentIntelligenceResult (mesma estrutura, com ajustes)
         """
 
         def clamp_short(short: ShortCandidate) -> ShortCandidate:
-            """Ajusta timestamps de ShortCandidate para respeitar os limites."""
             s = short.start
             e = short.end
 
-            # Força dentro da duração do vídeo
             if s < 0:
                 s = 0.0
                 e = min(e, video_duration_seconds)
@@ -40,57 +65,66 @@ class TimelineValidatorAgent:
                 e = video_duration_seconds
                 s = max(s, 0.0)
 
-            # Força em [min, max] de duração
             if e - s < settings.shorts_min_duration_seconds:
                 s = max(0.0, e - settings.shorts_min_duration_seconds)
             if e - s > settings.shorts_max_duration_seconds:
                 e = min(video_duration_seconds, s + settings.shorts_max_duration_seconds)
 
-            # Garante start <= end
             if s > e:
                 s, e = e, s
 
-            # Rejeita se ainda estiver fora dos limites após ajuste (inválido)
             if (
                 e - s < settings.shorts_min_duration_seconds
                 or e - s > settings.shorts_max_duration_seconds
             ):
-                return None  # descartar
+                return None
 
             return ShortCandidate(
                 start=s,
                 end=e,
                 reason=short.reason,
                 score=short.score,
+                hook_strength=short.hook_strength,
             )
 
-        # Valida capítulos: ordem crescente, dentro da duração
-        # Nota: não há restrição de overlap shorts/capítulos na especificação
         valid_chapters = []
         last_chapter_end = 0.0
         for ch in content.seo.chapters:
             clamped_start = max(0.0, min(ch.timestamp_seconds, video_duration_seconds))
-            # Garante ordem crescente
             if clamped_start < last_chapter_end:
                 clamped_start = last_chapter_end
             if clamped_start > video_duration_seconds:
                 continue
-            # Mantém duração razoável (1 a 3 segundos?)
-            # Sem restrições de duração no schema original — apenas manter
             clamped_ch = Chapter(timestamp_seconds=clamped_start, title=ch.title)
             valid_chapters.append(clamped_ch)
-            last_chapter_end = clamped_start + 1.0  # placeholder duration
+            last_chapter_end = clamped_start + 1.0
 
-        # Validar shorts
-        valid_shorts = []
+        valid_shorts: list[ShortCandidate] = []
         for short in content.shorts:
             clamped = clamp_short(short)
             if clamped is None:
-                logger.warning(f"Descartado ShortCandidate inválido: {short}")
+                logger.warning(f"Descartado ShortCandidate invalido: {short}")
                 continue
 
-            # Sem restrição de overlap shorts/capítulos na especificação original
-            valid_shorts.append(clamped)
+            # Snap to phrase boundary
+            if transcript:
+                clamped.start = _snap_to_phrase_boundary(
+                    clamped.start, transcript, direction="left"
+                )
+                clamped.end = _snap_to_phrase_boundary(
+                    clamped.end, transcript, direction="right"
+                )
+
+            # Enforce minimum spacing between shorts
+            if valid_shorts:
+                last = valid_shorts[-1]
+                if clamped.start - last.end < settings.shorts_min_spacing_seconds:
+                    clamped.start = last.end + settings.shorts_min_spacing_seconds
+                    if clamped.end - clamped.start < settings.shorts_min_duration_seconds:
+                        clamped.end = clamped.start + settings.shorts_min_duration_seconds
+
+            if clamped.end <= video_duration_seconds and clamped.end > clamped.start:
+                valid_shorts.append(clamped)
 
         return ContentIntelligenceResult(
             video_id=content.video_id,
@@ -115,5 +149,7 @@ class TimelineValidatorAgent:
             raise FileNotFoundError("Dados necessarios nao encontrados no cache")
         video_duration = metadata["metadata"]["duration_seconds"]
         content = ContentIntelligenceResult(**content_data)
-        result = self.run(content, video_duration)
+        cleaned = load_json(cache_dir / "cleaned.json")
+        transcript_segments = (cleaned or {}).get("segments", [])
+        result = self.run(content, video_duration, transcript_segments)
         save_json(cache_dir / "content.json", result.model_dump())

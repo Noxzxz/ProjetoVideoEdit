@@ -9,8 +9,9 @@ def test_prompt_not_found_raises_error(monkeypatch):
     monkeypatch.setattr(
         "agents.content_intelligence.agent.settings.prompts_dir", "/inexistente/prompts"
     )
+    config = type("Settings", (), {"shorts_target_count": 4})()
     with pytest.raises(ContentGenerationError):
-        agent.run({"video_id": "test", "segments": []}, 60.0)
+        agent.run({"video_id": "test", "segments": []}, 60.0, config)
 
 
 def test_format_transcript_capped_at_400_segments():

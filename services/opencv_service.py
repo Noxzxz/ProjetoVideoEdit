@@ -49,7 +49,7 @@ def extract_candidate_frames(
 
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-                if lap_var >= 100:
+                if lap_var >= 50:
                     frames_data.append((frame_idx, scene_dist, frame.copy()))
 
                 prev_hist = hist

@@ -13,6 +13,7 @@ class ShortCandidate(BaseModel):
     end: float
     reason: str
     score: float = Field(ge=0, le=1)
+    hook_strength: float = Field(default=0.5, ge=0, le=1)
 
 
 class ThumbnailPromptItem(BaseModel):

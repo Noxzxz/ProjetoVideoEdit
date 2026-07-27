@@ -4,17 +4,27 @@ from agents.video_edit.agent import build_cut_list
 from shared.exceptions import EditingError
 
 
+def _mock_config(**kwargs):
+    defaults = {
+        "min_gap_seconds": 0.6,
+        "silence_pre_padding_ms": 100,
+        "silence_post_padding_ms": 150,
+    }
+    defaults.update(kwargs)
+    return type("Settings", (), defaults)()
+
+
 def test_empty_segments_raises_error():
     with pytest.raises(EditingError):
         build_cut_list(
             {"video_id": "test", "original_path": "/fake/video.mp4"},
             {"segments": []},
-            type("Settings", (), {"min_gap_seconds": 0.6})(),
+            _mock_config(),
         )
 
 
 def test_build_cut_list_keeps_speech_intervals():
-    config = type("Settings", (), {"min_gap_seconds": 0.6})()
+    config = _mock_config()
     video = {"video_id": "test", "original_path": "/fake/video.mp4"}
     transcript = {
         "segments": [
@@ -29,7 +39,7 @@ def test_build_cut_list_keeps_speech_intervals():
 
 
 def test_build_cut_list_separates_distant_intervals():
-    config = type("Settings", (), {"min_gap_seconds": 0.6})()
+    config = _mock_config()
     video = {"video_id": "test", "original_path": "/fake/video.mp4"}
     transcript = {
         "segments": [
@@ -42,12 +52,8 @@ def test_build_cut_list_separates_distant_intervals():
 
 
 def test_no_valid_intervals_raises_error():
-    config = type("Settings", (), {"min_gap_seconds": 0.6})()
+    config = _mock_config()
     video = {"video_id": "test", "original_path": "/fake/video.mp4"}
-    transcript = {
-        "segments": [
-            {"start": 0.0, "end": 0.0, "text": "vazio"},
-        ],
-    }
+    transcript = {"segments": []}
     with pytest.raises(EditingError):
         build_cut_list(video, transcript, config)

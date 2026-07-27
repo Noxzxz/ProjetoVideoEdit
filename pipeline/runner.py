@@ -20,6 +20,7 @@ class PipelineStage(Enum):
     PRE_FLIGHT = auto()
     VIDEO_PROCESSING = auto()
     SPEECH_RECOGNITION = auto()
+    MARKER_DETECTION = auto()
     TRANSCRIPT_CLEANING = auto()
     CONTENT_INTELLIGENCE = auto()
     TIMELINE_VALIDATION = auto()
@@ -159,6 +160,11 @@ class PipelineRunner:
                 i += len(parallel_batch)
                 continue
 
+            if stage == PipelineStage.PACKAGING:
+                state.completed = all(
+                    s.status in ("success", "skipped") for s in state.stages
+                )
+
             self._run_single_stage(state, stage, video_path)
             i += 1
 
@@ -254,7 +260,7 @@ class PipelineRunner:
                 started_at = datetime.now()
                 state.current_stage = stage.name
                 future = executor.submit(handler, video_path, state.video_hash, self.config, state)
-                future_to_stage[future] = (stage, started_at)
+                future_to_stage[future] = (stage.name, started_at)
 
             for future in as_completed(future_to_stage):
                 stage_name, started_at = future_to_stage[future]

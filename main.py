@@ -43,6 +43,7 @@ def main() -> int:
     # Register all agents
     try:
         from agents.content_intelligence.agent import ContentIntelligenceAgent
+        from agents.marker_detection.agent import MarkerDetectionAgent
         from agents.packaging.agent import PackagingAgent
         from agents.shorts_extractor.agent import ShortsExtractorAgent
         from agents.speech_recognition.agent import SpeechRecognitionAgent
@@ -58,6 +59,7 @@ def main() -> int:
 
     runner.register(PipelineStage.VIDEO_PROCESSING, VideoProcessingAgent().run_stage)
     runner.register(PipelineStage.SPEECH_RECOGNITION, SpeechRecognitionAgent().run_stage)
+    runner.register(PipelineStage.MARKER_DETECTION, MarkerDetectionAgent().run_stage)
     runner.register(PipelineStage.TRANSCRIPT_CLEANING, TranscriptCleanerAgent().run_stage)
     runner.register(PipelineStage.CONTENT_INTELLIGENCE, ContentIntelligenceAgent().run_stage)
     runner.register(PipelineStage.TIMELINE_VALIDATION, TimelineValidatorAgent().run_stage)
