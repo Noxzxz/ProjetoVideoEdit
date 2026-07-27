@@ -2,7 +2,7 @@ from config.settings import Settings
 
 
 def test_default_settings():
-    s = Settings()
+    s = Settings(_env_file=None)
     assert s.whisper_model_size == "small"
     assert s.whisper_device == "cuda"
     assert s.ollama_model == "qwen2.5:3b"
@@ -10,6 +10,7 @@ def test_default_settings():
     assert s.shorts_min_duration_seconds == 15
     assert s.max_words_per_line == 4
     assert s.ollama_temperature == 0.2
+    assert s.llm_provider == "ollama"
 
 
 def test_custom_settings_via_env(monkeypatch):

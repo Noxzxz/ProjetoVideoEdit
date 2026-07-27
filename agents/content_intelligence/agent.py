@@ -5,7 +5,7 @@ from pathlib import Path
 from config.settings import Settings, settings
 from schemas.content import ContentIntelligenceResult
 from schemas.state import PipelineState
-from services.ollama_service import generate
+from services.llm_provider import generate
 from shared.exceptions import ContentGenerationError
 from utils.file_utils import load_json, save_json
 from utils.hash_utils import get_cache_dir

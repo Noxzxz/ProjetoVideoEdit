@@ -27,6 +27,9 @@ dev = [
     "ruff",
     "torch",
 ]
+cloud = [
+    "google-genai",
+]
 
 [tool.ruff]
 line-length = 100

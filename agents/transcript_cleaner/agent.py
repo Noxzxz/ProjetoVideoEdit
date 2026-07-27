@@ -1,11 +1,12 @@
 import logging
 import re
+import time
 from pathlib import Path
 
 from config.settings import Settings, settings
 from schemas.state import PipelineState
 from schemas.transcript import TranscriptCleaned, TranscriptRaw, TranscriptSegment
-from services.ollama_service import generate
+from services.llm_provider import generate
 from shared.exceptions import CleaningError
 from utils.file_utils import load_json, save_json
 from utils.hash_utils import get_cache_dir
@@ -41,16 +42,18 @@ class TranscriptCleanerAgent:
         cleaned_texts = [apply_regex_cleaning(s.text) for s in transcript.segments]
 
         # 2. LLM cleaning (processamento em lote)
-        batch_size = 25
+        batch_size = 15
         all_segments = [s for s in transcript.segments if s.text.strip()]  # Filtrar vazios
         batches = [
             all_segments[i : i + batch_size] for i in range(0, len(all_segments), batch_size)
         ]
 
         cleaned_segments_after_llm = []
-        for batch in batches:
+        for idx, batch in enumerate(batches):
             if not batch:  # Batch vazio
                 continue
+            if idx > 0:
+                time.sleep(3)  # Pausa entre lotes para evitar rate limit
 
             # Formatar para LLM (inclui timestamps para contexto)
             prompt_lines = []
@@ -91,7 +94,8 @@ Responda APENAS com o texto corrigido, sem anotações."""
                             id=seg.id,
                             start=seg.start,
                             end=seg.end,
-                            text=llm_response.strip(),
+                            text=seg.text,
+                            confidence=seg.confidence,
                         )
                     )
             except Exception as e:

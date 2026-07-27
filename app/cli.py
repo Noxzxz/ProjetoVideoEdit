@@ -32,4 +32,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="Log nivel DEBUG",
     )
+    parser.add_argument(
+        "--transcript",
+        type=str,
+        default=None,
+        help="Importar transcricao existente (JSON no formato TranscriptRaw)",
+    )
+    parser.add_argument(
+        "--srt",
+        type=str,
+        default=None,
+        help="Importar transcricao de arquivo SRT",
+    )
+    parser.add_argument(
+        "--vtt",
+        type=str,
+        default=None,
+        help="Importar transcricao de arquivo VTT",
+    )
     return parser.parse_args(argv)

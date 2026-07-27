@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:3b"
     ollama_temperature: float = 0.2
 
+    llm_provider: Literal["ollama", "gemini", "groq"] = "ollama"
+
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
+
     sqlite_path: str = "shared/db/analytics.db"
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

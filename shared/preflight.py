@@ -23,25 +23,39 @@ def run_preflight_checks() -> list[str]:
     except Exception:
         errors.append("ffprobe nao encontrado. Instale com: sudo apt install ffmpeg")
 
-    try:
-        settings = Settings()
-        req = urllib.request.Request(
-            f"{settings.ollama_base_url}/api/tags",
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = resp.read()
-    except Exception:
-        errors.append("Ollama nao esta rodando. Execute 'ollama serve' no terminal.")
-        data = None
+    settings = Settings()
 
-    if data:
-        models = json.loads(data).get("models", [])
-        model_names = [m.get("name", "") for m in models]
-        if settings.ollama_model not in model_names:
+    if settings.llm_provider == "ollama":
+        try:
+            req = urllib.request.Request(
+                f"{settings.ollama_base_url}/api/tags",
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = resp.read()
+        except Exception:
+            errors.append("Ollama nao esta rodando. Execute 'ollama serve' no terminal.")
+            data = None
+
+        if data:
+            models = json.loads(data).get("models", [])
+            model_names = [m.get("name", "") for m in models]
+            if settings.ollama_model not in model_names:
+                errors.append(
+                    f"Modelo '{settings.ollama_model}' nao encontrado. "
+                    f"Baixe com: ollama pull {settings.ollama_model}"
+                )
+    elif settings.llm_provider == "gemini":
+        if not settings.gemini_api_key:
             errors.append(
-                f"Modelo '{settings.ollama_model}' nao encontrado. "
-                f"Baixe com: ollama pull {settings.ollama_model}"
+                "GEMINI_API_KEY nao configurada. "
+                "Defina no .env ou exporte a variavel."
+            )
+    elif settings.llm_provider == "groq":
+        if not settings.groq_api_key:
+            errors.append(
+                "GROQ_API_KEY nao configurada. "
+                "Defina no .env ou exporte a variavel."
             )
 
     huggingface_cache = Path.home() / ".cache" / "huggingface" / "hub"

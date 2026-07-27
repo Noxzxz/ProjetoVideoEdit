@@ -114,6 +114,7 @@ class PipelineRunner:
         video_path: Path,
         from_stage: str | None = None,
         force: bool = False,
+        transcript_path: Path | None = None,
     ) -> PipelineState:
         state = self._load_or_create_state(video_path)
 
@@ -123,12 +124,15 @@ class PipelineRunner:
             state.current_stage = None
 
         if from_stage and not force:
-            # Resume from a specific stage
             state.current_stage = from_stage
 
         # Pre-flight check
         preflight = PreFlightCheck(self.config)
         preflight.run()
+
+        # Import external transcript if provided
+        if transcript_path is not None:
+            self._import_transcript(transcript_path, state)
 
         stages = PipelineStage.ordered()
         # Find starting point
@@ -150,7 +154,6 @@ class PipelineRunner:
                 continue
 
             if stage in PARALLEL_GROUP:
-                # Collect all parallel stages starting from here
                 parallel_batch = [s for s in stages[i:] if s in PARALLEL_GROUP]
                 self._run_parallel_group(state, parallel_batch, video_path)
                 i += len(parallel_batch)
@@ -164,6 +167,52 @@ class PipelineRunner:
         self._save_state(state)
         logger.info("Pipeline concluido com sucesso.")
         return state
+
+    def _import_transcript(self, transcript_path: Path, state: PipelineState) -> None:
+        from services.transcript_import import import_transcript
+        from utils.slugify import generate_video_id
+
+        cache_dir = get_cache_dir(state.video_hash)
+        video_id = generate_video_id(state.video_path)
+        transcript = import_transcript(transcript_path, video_id)
+        save_json(cache_dir / "transcript.json", transcript.model_dump())
+
+        duration = transcript.duration_seconds
+        metadata_path = cache_dir / "metadata.json"
+        existing = load_json(metadata_path)
+        if existing:
+            existing.setdefault("metadata", {})["duration_seconds"] = duration
+            save_json(metadata_path, existing)
+        else:
+            save_json(
+                metadata_path,
+                {
+                    "video_id": video_id,
+                    "audio_path": str(state.video_path),
+                    "metadata": {"duration_seconds": duration},
+                },
+            )
+
+        now = datetime.now()
+        for stage_name in ("VIDEO_PROCESSING", "SPEECH_RECOGNITION"):
+            result = StageResult(
+                stage=stage_name,
+                status="success",
+                started_at=now,
+                finished_at=now,
+                duration_seconds=0.0,
+                error_message="Transcricao importada externamente",
+            )
+            state.stages = [s for s in state.stages if s.stage != stage_name]
+            state.stages.append(result)
+
+        state.current_stage = "TRANSCRIPT_CLEANING"
+        state.updated_at = now
+        self._save_state(state)
+        logger.info(
+            f"Transcricao importada de {transcript_path.name}: "
+            f"{len(transcript.segments)} segmentos, {duration:.1f}s"
+        )
 
     def _run_single_stage(
         self, state: PipelineState, stage: PipelineStage, video_path: Path

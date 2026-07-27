@@ -24,7 +24,9 @@ def test_preflight_fails_without_ffmpeg():
         assert any("FFmpeg" in e for e in errors)
 
 
-def test_preflight_fails_without_ollama():
+def test_preflight_fails_without_ollama(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with (
         patch("subprocess.run") as mock_run,
         patch("urllib.request.urlopen", side_effect=ConnectionRefusedError()),

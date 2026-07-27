@@ -26,6 +26,18 @@ def main() -> int:
         logger.error(f"Arquivo nao encontrado: {video_path}")
         return 1
 
+    transcript_path: Path | None = None
+    if args.transcript:
+        transcript_path = Path(args.transcript)
+    elif args.srt:
+        transcript_path = Path(args.srt)
+    elif args.vtt:
+        transcript_path = Path(args.vtt)
+
+    if transcript_path and not transcript_path.exists():
+        logger.error(f"Transcricao nao encontrada: {transcript_path}")
+        return 1
+
     runner = PipelineRunner(config)
 
     # Register all agents
@@ -60,6 +72,7 @@ def main() -> int:
             video_path=video_path,
             from_stage=args.from_stage,
             force=args.force,
+            transcript_path=transcript_path,
         )
         if state.completed:
             logger.info("Pipeline concluido com sucesso!")
