@@ -10,7 +10,7 @@ from shared.exceptions import PreflightError
 logger = logging.getLogger(__name__)
 
 
-def run_preflight_checks() -> list[str]:
+def run_preflight_checks(config: Settings | None = None) -> list[str]:
     errors: list[str] = []
 
     try:
@@ -23,7 +23,7 @@ def run_preflight_checks() -> list[str]:
     except Exception:
         errors.append("ffprobe nao encontrado. Instale com: sudo apt install ffmpeg")
 
-    settings = Settings()
+    settings = config if config is not None else Settings()
 
     if settings.llm_provider == "ollama":
         try:
@@ -94,7 +94,7 @@ class PreFlightCheck:
         self.config = config
 
     def run(self) -> None:
-        errors = run_preflight_checks()
+        errors = run_preflight_checks(self.config)
         if errors:
             raise PreflightError("; ".join(errors))
         logger.info("Pre-flight check concluido com sucesso.")

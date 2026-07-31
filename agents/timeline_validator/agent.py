@@ -3,7 +3,6 @@ from pathlib import Path
 
 from config.settings import Settings, settings
 from schemas.content import Chapter, ContentIntelligenceResult, ShortCandidate
-from schemas.state import PipelineState
 from utils.file_utils import load_json, save_json
 from utils.hash_utils import get_cache_dir
 
@@ -41,6 +40,7 @@ class TimelineValidatorAgent:
         content: ContentIntelligenceResult,
         video_duration_seconds: float,
         transcript: list[dict] | None = None,
+        config: Settings | None = None,
     ) -> ContentIntelligenceResult:
         """Valida e corrige timestamps (shorts e capítulos) antes do corte de vídeo real.
 
@@ -53,8 +53,12 @@ class TimelineValidatorAgent:
 
         Retorna: novo ContentIntelligenceResult (mesma estrutura, com ajustes)
         """
+        cfg = config or settings
+        min_duration = cfg.shorts_min_duration_seconds
+        max_duration = cfg.shorts_max_duration_seconds
+        min_spacing = cfg.shorts_min_spacing_seconds
 
-        def clamp_short(short: ShortCandidate) -> ShortCandidate:
+        def clamp_short(short: ShortCandidate) -> ShortCandidate | None:
             s = short.start
             e = short.end
 
@@ -65,27 +69,18 @@ class TimelineValidatorAgent:
                 e = video_duration_seconds
                 s = max(s, 0.0)
 
-            if e - s < settings.shorts_min_duration_seconds:
-                s = max(0.0, e - settings.shorts_min_duration_seconds)
-            if e - s > settings.shorts_max_duration_seconds:
-                e = min(video_duration_seconds, s + settings.shorts_max_duration_seconds)
+            if e - s < min_duration:
+                s = max(0.0, e - min_duration)
+            if e - s > max_duration:
+                e = min(video_duration_seconds, s + max_duration)
 
             if s > e:
                 s, e = e, s
 
-            if (
-                e - s < settings.shorts_min_duration_seconds
-                or e - s > settings.shorts_max_duration_seconds
-            ):
+            if e - s < min_duration or e - s > max_duration:
                 return None
 
-            return ShortCandidate(
-                start=s,
-                end=e,
-                reason=short.reason,
-                score=short.score,
-                hook_strength=short.hook_strength,
-            )
+            return short.model_copy(update={"start": s, "end": e})
 
         valid_chapters = []
         last_chapter_end = 0.0
@@ -118,10 +113,10 @@ class TimelineValidatorAgent:
             # Enforce minimum spacing between shorts
             if valid_shorts:
                 last = valid_shorts[-1]
-                if clamped.start - last.end < settings.shorts_min_spacing_seconds:
-                    clamped.start = last.end + settings.shorts_min_spacing_seconds
-                    if clamped.end - clamped.start < settings.shorts_min_duration_seconds:
-                        clamped.end = clamped.start + settings.shorts_min_duration_seconds
+                if clamped.start - last.end < min_spacing:
+                    clamped.start = last.end + min_spacing
+                    if clamped.end - clamped.start < min_duration:
+                        clamped.end = clamped.start + min_duration
 
             if clamped.end <= video_duration_seconds and clamped.end > clamped.start:
                 valid_shorts.append(clamped)
@@ -139,9 +134,7 @@ class TimelineValidatorAgent:
             summary=content.summary,
         )
 
-    def run_stage(
-        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
-    ) -> None:
+    def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
         cache_dir = get_cache_dir(video_hash)
         metadata = load_json(cache_dir / "metadata.json")
         content_data = load_json(cache_dir / "content.json")
@@ -151,5 +144,5 @@ class TimelineValidatorAgent:
         content = ContentIntelligenceResult(**content_data)
         cleaned = load_json(cache_dir / "cleaned.json")
         transcript_segments = (cleaned or {}).get("segments", [])
-        result = self.run(content, video_duration, transcript_segments)
+        result = self.run(content, video_duration, transcript_segments, config)
         save_json(cache_dir / "content.json", result.model_dump())

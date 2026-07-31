@@ -81,7 +81,7 @@ Antes de alterar qualquer um dos módulos citados abaixo, verifique se a mudanç
 
 ## 1b. Sessão de Planejamento — Nicho World of Darkness (D16-D26)
 
-> Origem: `Decisoes_Validadas_Sessao_Planejamento_WoD.md`. As entradas D16-D25 foram **validadas e implementadas** (commits `967791c`, `2b7eae4`, `3582b0c`). D26 é **proposta em aberto** (não fechada). A numeração continua de D15 (ver resumo no `RESUMO_PLANEJAMENTO.md`); D10-D15 permanecem lá resumidos.
+> Origem: `Decisoes_Validadas_Sessao_Planejamento_WoD.md`. As entradas D16-D25 foram **validadas e implementadas** (commits `967791c`, `2b7eae4`, `3582b0c`). D26 é **proposta em aberto** (não fechada). D27-D30 (robustez/qualidade do pipeline) foram **implementadas** na rodada seguinte. A numeração continua de D15 (ver resumo no `RESUMO_PLANEJAMENTO.md`); D10-D15 permanecem lá resumidos.
 > **Contexto de negócio:** o pipeline é usado para pré-edição de um canal de nicho de **World of Darkness** (sessões de RPG de mesa, mecânica, lore, podcast). Vídeos gravados *audio-first* — a imagem é adicionada em pós-produção. Por isso o vídeo é tratado como **inexistente ou irrelevante** no momento do processamento.
 
 ### D16 — Remoção completa da extração de thumbnail via OpenCV (sem substituto na V1)
@@ -165,6 +165,35 @@ Antes de alterar qualquer um dos módulos citados abaixo, verifique se a mudanç
 - **Proposta:** processar os chunks em paralelo contra o Ollama (reaproveitando o padrão `ThreadPoolExecutor`), em vez de sequencial.
 - **Por que não é decisão fechada:** falta validar quanta concorrência a GPU de 4GB aguenta antes de virar padrão (risco de OOM ou de degradar o tempo por chamada a ponto de anular o ganho).
 - **Ação necessária para fechar:** testar 2-3 chamadas concorrentes ao Ollama local em chunks reais, medir VRAM e tempo por chamada, comparar com sequencial.
+- **Nota de evolução (implementação do D29):** o map-reduce foi implementado **sequencial**, conforme a decisão — D26 permanece **condicionado** à validação de concorrência na GPU de 4GB. Não paralelizar chunks sem esse teste.
+
+### D27 — Fingerprint de configuração por etapa + invalidação em cascata
+
+- **Contexto:** Depois do D8, alterar um prompt/glossário/setting obrigava `--force` (reprocessar tudo), porque o cache não sabia *o que* havia mudado. Alterar só o prompt de shorts reprocessava a transcrição inteira.
+- **Decisão:** `pipeline/fingerprint.py` computa um fingerprint **por etapa**: sha256 do JSON ordenado dos settings relevantes àquela etapa + snapshot (tamanho/mtime) dos arquivos que ela consome (prompts, glossário, campanha, hashtags). O fingerprint é salvo em `PipelineState.stage_fingerprints` quando a etapa termina. Na execução, se o fingerprint atual de uma etapa diverge do salvo, essa etapa **e todas as subsequentes** são invalidadas (cascata — as seguintes consomem artefatos anteriores e ficam inconsistentes).
+- **Por quê:** Invalidação cirúrgica: mudar o prompt de shorts não reprocessa áudio/transcrição; a cascata garante consistência (nunca editar vídeo com conteúdo antigo). É a generalização do "cache-aware" do D7.
+- **Como não regredir:** ao adicionar um novo setting, mapeá-lo em `_SETTINGS_BY_STAGE` na(s) etapa(s) que ele afeta — um setting não mapeado vira invalidação perdida em silêncio. `VIDEO_PROCESSING`/`PACKAGING` têm lista vazia de propósito (não são sensíveis a config).
+
+### D28 — Injeção de dependência de `Settings` (fim do uso do singleton nos agentes)
+
+- **Contexto:** Agentes importavam o singleton `settings = Settings()` diretamente (era a prática do D8). Testes exigiam monkeypatch global; cada módulo podia re-lembrar o `.env` de forma diferente; o `PipelineRunner` não tinha controle do config que os handlers usavam.
+- **Decisão:** `Settings` é passado explicitamente: `run_stage(video_path, video_hash, config)`; o `PipelineRunner` injeta o mesmo config em todos os handlers. Serviços/utilitários aceitam `config` opcional e caem no singleton **apenas** quando chamados fora do pipeline (CLI, preflight, uso direto). Providers LLM recebem `config` no construtor (`LLMProvider(config)`).
+- **Por quê:** Testável sem monkeypatch global, um único config coerente por execução, sem quebrar chamadas diretas existentes. Preserva a regra de ouro do D8 (Settings flat).
+- **Como não regredir:** `run_stage` nunca deve recriar `Settings()` — deve usar o config recebido. O singleton é fallback, não fonte primária dentro do pipeline.
+
+### D29 — Retry/backoff genérico no LLM + checkpoint por chunk (modo de falha tolerante)
+
+- **Contexto:** Groq free tier devolve 429 (rate limit) — vídeos de 2h+ acumulavam minutos de backoff manual (PENDENTE 3 do `RESUMO_PLANEJAMENTO.md`). No map-reduce (D17), uma falha no meio reprocessava todos os chunks do zero.
+- **Decisão:** Dois mecanismos. **(1) Retry genérico** em `LLMProvider._post()`: tenta `LLM_MAX_RETRIES` (default 3) com backoff linear (`LLM_RETRY_BACKOFF_SECONDS` × tentativa) em 429/5xx/`ConnectionError`, unificando Ollama/Gemini/Groq. **(2) Checkpoint por chunk** no Content Intelligence: cada chunk bem-sucedido é salvo em `cache/<hash>/chunks_<fingerprint>/chunk_NNN.json` (chaveado pelo fingerprint D27 — config alterada não reusa checkpoint velho); numa reexecução, chunks já processados são carregados e só os pendentes são refeitos. Modo de falha: um chunk que falha vira **warning** (não derruba o pipeline) — a consolidação trabalha com o que conseguiu.
+- **Por quê:** Rate limit vira atrito temporário, não aborto; vídeos longos retomam sem reprocessar tudo (mesmo espírito do B5, agora no map-reduce).
+- **Como não regredir:** `_post()` nunca deve retry em 4xx não-retryable — 401/403/404 viram erro imediato com mensagem clara (chave inválida / modelo ausente). Checkpoint sempre chaveado por fingerprint, nunca por nome de arquivo fixo.
+
+### D30 — Handlers puros: `run_stage` sem `state` (responsabilidade de registro exclusiva do Runner)
+
+- **Contexto:** Handlers recebiam `state` e podiam mutá-lo; mesmo depois do B2 (que registrou que o append é do Runner), paralelismo com estado mutável compartilhado (ThreadPoolExecutor) é receita para race condition.
+- **Decisão:** `StageHandler = Callable[[Path, str, Settings], None]` — handlers são **funções puras**, sem `state`. `_record_stage_result` é o **único** escritor de `StageResult` (na thread principal). Quem precisar do estado lê o arquivo persistido: o `PackagingAgent.run_stage` carrega `pipeline_state.json` (read-only); o Runner persiste `completed` **antes** de rodar o Packaging.
+- **Por quê:** Impossibilita por tipo a duplicação de registros (B2) e race conditions no paralelo; estado vira dado (serializável), não estado mutável compartilhado.
+- **Como não regredir:** nenhum handler pode voltar a receber ou mutar `state`; se um agente precisar do estado, ler do arquivo persistido em `cache/<hash>/pipeline_state.json`.
 
 ---
 
@@ -181,6 +210,15 @@ Estes já eram problemas **reais identificados em código de exemplo**, corrigid
 | B5 | Vídeos de 20-30 min inviáveis em CPU — processamento levaria horas | `TranscriptCleanerAgent` fazia **1 chamada LLM por segmento** (centenas de chamadas por vídeo) | Reescrito para processar em **batches de 25 segmentos por chamada**, com checkpoint parcial (`cleaned.partial.json`) para não reprocessar tudo em caso de falha no meio | Nunca voltar a fazer 1 chamada LLM por segmento; qualquer nova etapa de LLM sobre texto longo deve, por padrão, processar em lote |
 | B6 | Vazamento de VRAM em sessões longas do Streamlit (processo não reinicia entre vídeos) | Nenhuma gestão explícita de descarregamento do modelo Whisper da GPU | Adicionado `unload_whisper_model()`, chamado ao final da etapa `SPEECH_RECOGNITION` | Toda etapa que carrega modelo em VROM/GPU deve ter uma função de unload simétrica, chamada ao fim da etapa — não só o Whisper |
 | B7 | Tempo total do pipeline mais alto que o necessário | `SUBTITLE_STYLING`, `THUMBNAIL_FRAMES` e `SHORTS_EXTRACTION` não dependem umas das outras, mas rodavam sequencialmente | `PipelineRunner` agora agrupa e executa esse trio em paralelo via `ThreadPoolExecutor` (`PARALLEL_GROUP`) | Antes de adicionar uma nova etapa a esse pipeline, verificar se ela realmente depende do output de outra etapa ou se pode entrar no grupo paralelo |
+| B8 | Relatório usava o *nome* da saga como número (grupo paralelo) | `future_to_stage` era chaveado por `stage` (enum), e o relatório formatava o enum como número | Usar `stage.name` (string) no `future_to_stage` / registro de `StageResult` | No paralelo, registrar sempre `stage.name` como string, nunca `stage.value`/índice |
+| B9 | Relatório saía "Incompleto" com 100% de sucesso | `state.completed` só era setado ao final do `run()`, mas o `report.md` (Packaging) era gerado antes disso | `state.completed` é calculado e **persistido antes** de executar o PACKAGING | Qualquer leitura do estado dentro de uma etapa deve ver o `completed` da forma como ficará após a etapa |
+| B10 | `confidence` ausente nos segmentos quando a limpeza passava pelo caminho LLM | o batch do LLM reconstruía segmentos sem propagar o `confidence` original | `confidence=seg.confidence` ao reconstruir os segmentos no caminho LLM | Ao reconstruir `TranscriptSegment`, sempre propagar `confidence` — nunca usar default |
+| B11 | 0 thumbnails extraídos (limiar 100) | limiar de variância de Laplaciano alto demais para o conteúdo | limiar reduzido (≥ 50) — **OBSOLETO**: a etapa de thumbnail foi **removida** por completo (D16) | Não reverter o D16; qualquer "volta de thumbnail" é decisão nova, não correção |
+| B12 | `TimelineValidatorAgent` apagava campos de curta duração do D19/D21 | ao corrigir timestamps, reconstruía `ShortCandidate(start=..., end=...)`, descartando `reason`/`gancho`/`payoff`/`emocao`/`standalone_score`/`standalone_notes` | usar `short.model_copy(update={"start": s, "end": e})` — preserva todos os campos existentes | Ao "ajustar" um modelo, usar `model_copy(update=...)`, nunca reconstruir só com os campos que se quer mudar |
+| B13 | Packaging não encontrava o vídeo editado | `VideoEditAgent` grava em `outputs/{video_id}/edited.mp4`, mas o Packaging buscava apenas em `outputs/{stem}/` | `_resolve_edited_video()` lê o `video_id` do `metadata.json` (fallback `generate_video_id`) e procura em `outputs/{video_id}/edited.mp4`, com fallback para o próprio output_dir | Ao copiar artefatos entre diretórios do cache/outputs, sempre derivar o caminho do `video_id` oficial (`utils/slugify`), nunca do `stem` do arquivo |
+| B14 | Hash relia o vídeo **inteiro** (multi-GB) a cada execução/resume | `compute_video_hash` hasheava o arquivo completo em todo `--from`/resume | Hash por amostra (B12 na sessão): tamanho + `mtime_ns` + 1º e último MB | `compute_video_hash` nunca deve voltar a ler o arquivo inteiro — amostra + metadados já detectam mudanças reais |
+| B15 | `analytics.json` com `video_duration_seconds=0` e `config_snapshot` vazando api keys | duração não era lida do metadata; o snapshot incluía todos os campos do `Settings` (incluindo `*_api_key`) | `_build_analytics` lê `metadata.metadata.duration_seconds` e filtra do snapshot qualquer chave com `key`/`token` no nome | `config_snapshot` nunca pode incluir campos sensíveis — o filtro `key`/`token` é obrigatório |
+| B16 | Picos de energia RMS recalculados do zero a cada execução | a análise do WAV rodava sempre, mesmo com cache disponível | `get_energy_peaks_cached()` cacheia em `cache/<hash>/audio_peaks.json` (invalidado por tamanho+mtime do WAV) | Análises determinísticas caras devem ter cache por arquivo com invalidação por mtime/tamanho |
 
 ---
 
@@ -201,6 +239,9 @@ Estes testes existem especificamente porque um dos bugs acima já aconteceu uma 
 1. **Hash consistente:** `get_video_hash_from_id(generate_video_id(...))` retorna exatamente o hash original, para todo agente que dependa disso. *(protege contra B1)*
 2. **Um `StageResult` por etapa:** após `PipelineRunner.run()` completo, `state.stages` tem exatamente 1 entrada por etapa executada, nunca 2. *(protege contra B2)*
 3. **Round-trip de estado:** salvar `PipelineState` em disco → recarregar → todos os campos (`Path`, `datetime`, `output_paths`) batem sem erro de validação. *(protege contra B3)*
+4. **Preservação de campos do short:** corrigir timestamps de um `ShortCandidate` não apaga `reason`/`gancho`/`payoff`/`emocao`/`standalone_*` — `test_short_preserves_bloco_c_fields`. *(protege contra B12)*
+5. **Invalidação em cascata (D27):** mudar um fingerprint de etapa invalida a etapa e as subsequentes, mas preserva as anteriores — `tests/test_runner_d27.py`. *(protege contra regressão do D27)*
+6. **Retry/checkpoint (D29):** `_post()` esgota tentativas sem retry em 4xx não-retryable, e chunk já processado não é re-chamado — `tests/test_llm_provider.py` e `tests/agents/test_content_intelligence.py`. *(protege contra regressão do D29)*
 
 ---
 

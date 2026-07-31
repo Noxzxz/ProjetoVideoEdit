@@ -1,9 +1,11 @@
 from typing import Literal
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     data_dir: str = "data"
     outputs_dir: str = "outputs"
     cache_dir: str = "cache"
@@ -34,6 +36,8 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     llm_call_delay_seconds: float = 3.0
+    llm_max_retries: int = 3
+    llm_retry_backoff_seconds: float = 2.0
 
     shorts_max_duration_seconds: int = 60
     shorts_min_duration_seconds: int = 15
@@ -63,10 +67,6 @@ class Settings(BaseSettings):
     video_preset: str = "fast"
 
     max_words_per_line: int = 4
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 settings = Settings()

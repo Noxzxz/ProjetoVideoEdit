@@ -5,7 +5,6 @@ from pathlib import Path
 
 from config.settings import Settings
 from schemas.marker import MarkerPair
-from schemas.state import PipelineState
 from schemas.transcript import TranscriptRaw
 from utils.file_utils import load_json, save_json
 from utils.hash_utils import get_cache_dir
@@ -96,9 +95,7 @@ class MarkerDetectionAgent:
             ooc_resume_word=config.ooc_resume_word,
         )
 
-    def run_stage(
-        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
-    ) -> None:
+    def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
         cache_dir = get_cache_dir(video_hash)
         transcript_data = load_json(cache_dir / "transcript.json")
         if not transcript_data:

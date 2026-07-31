@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 from config.settings import Settings
-from schemas.state import PipelineState
 from schemas.video import VideoIngestResult
 from services.ffmpeg_service import extract_audio, get_video_metadata
 from shared.exceptions import AudioExtractionError, VideoNotFoundError
@@ -49,7 +48,5 @@ class VideoProcessingAgent:
         logger.info(f"Video processado: {video_id}")
         return result
 
-    def run_stage(
-        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
-    ) -> None:
+    def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
         self.run(str(video_path), video_hash)

@@ -81,6 +81,40 @@ def test_chapter_order_and_bounds():
         assert 0.0 <= ts <= 60.0
 
 
+def test_short_preserves_bloco_c_fields():
+    """Regressao (D19/D21): campos gancho/payoff/emocao/standalone sao preservados."""
+    agent = TimelineValidatorAgent()
+    content = ContentIntelligenceResult(
+        video_id="test",
+        seo=SeoContent(title="", description="", hashtags=[], chapters=[]),
+        shorts=[
+            ShortCandidate(
+                start=10.0,
+                end=25.0,
+                reason="ok",
+                score=0.9,
+                hook_strength=0.8,
+                gancho="Gancho teste",
+                payoff="Payoff teste",
+                emocao="epica",
+                standalone_score=0.85,
+                standalone_notes="Compreensivel sozinho",
+            ),
+        ],
+        thumbnail_suggestions=[],
+        summary=SummaryContent(overview="", key_points=[], next_steps=[]),
+    )
+    result = agent.run(content, video_duration_seconds=90.0)
+    assert len(result.shorts) == 1
+    short = result.shorts[0]
+    assert short.start == 10.0 and short.end == 25.0
+    assert short.gancho == "Gancho teste"
+    assert short.payoff == "Payoff teste"
+    assert short.emocao == "epica"
+    assert short.standalone_score == 0.85
+    assert short.standalone_notes == "Compreensivel sozinho"
+
+
 def test_no_change_when_valid():
     """Testa que entradas válidas não são alteradas."""
     agent = TimelineValidatorAgent()

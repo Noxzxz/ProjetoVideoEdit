@@ -6,6 +6,7 @@ from enum import Enum, auto
 from pathlib import Path
 
 from config.settings import Settings
+from pipeline.fingerprint import compute_stage_fingerprint, compute_stage_fingerprints
 from schemas.state import PipelineState, StageResult
 from shared.preflight import PreFlightCheck
 from utils.file_utils import load_json, save_json
@@ -13,7 +14,8 @@ from utils.hash_utils import get_cache_dir
 
 logger = logging.getLogger(__name__)
 
-StageHandler = Callable[[Path, str, Settings, PipelineState], None]
+# D30: handlers sao funcoes puras (sem acesso a state mutavel).
+StageHandler = Callable[[Path, str, Settings], None]
 
 
 class PipelineStage(Enum):
@@ -80,6 +82,35 @@ class PipelineRunner:
         save_json(state_path, state.model_dump(mode="json"))
         logger.debug(f"Estado salvo em {state_path}")
 
+    def _invalidate_stale_stages(self, state: PipelineState) -> None:
+        """D27: se o fingerprint de config de uma etapa mudou, invalida essa etapa
+        e todas as subsequentes (consumidoras de artefatos anteriores)."""
+        current = compute_stage_fingerprints(self.config)
+        ordered = PipelineStage.ordered()
+
+        stale_index: int | None = None
+        for i, stage in enumerate(ordered):
+            prev = state.stage_fingerprints.get(stage.name)
+            if prev is not None and prev != current.get(stage.name):
+                stale_index = i
+                break
+
+        if stale_index is None:
+            return
+
+        invalidated = {s.name for s in ordered[stale_index:]}
+        state.stages = [s for s in state.stages if s.stage not in invalidated]
+        state.stage_fingerprints = {
+            name: fp
+            for name, fp in state.stage_fingerprints.items()
+            if name not in invalidated
+        }
+        first_stale = ordered[stale_index].name
+        logger.info(
+            f"Config alterada (D27): invalidando etapas desde {first_stale}"
+        )
+        self._save_state(state)
+
     def _record_stage_result(
         self,
         state: PipelineState,
@@ -105,6 +136,10 @@ class PipelineRunner:
         # Remove any previous result for same stage (avoids duplicates)
         state.stages = [s for s in state.stages if s.stage != stage_name]
         state.stages.append(stage_result)
+        if status == "success":
+            state.stage_fingerprints[stage_name] = compute_stage_fingerprint(
+                stage_name, self.config
+            )
         state.updated_at = datetime.now()
         self._save_state(state)
 
@@ -128,6 +163,10 @@ class PipelineRunner:
         # Pre-flight check
         preflight = PreFlightCheck(self.config)
         preflight.run()
+
+        # D27: invalida etapas cuja config mudou desde a ultima execucao
+        if not force:
+            self._invalidate_stale_stages(state)
 
         # Import external transcript if provided
         if transcript_path is not None:
@@ -162,6 +201,8 @@ class PipelineRunner:
                 state.completed = all(
                     s.status in ("success", "skipped") for s in state.stages
                 )
+                # Persiste antes de rodar: o Packaging le o estado do arquivo (D30)
+                self._save_state(state)
 
             self._run_single_stage(state, stage, video_path)
             i += 1
@@ -231,7 +272,7 @@ class PipelineRunner:
         state.current_stage = stage.name
 
         try:
-            handler(video_path, state.video_hash, self.config, state)
+            handler(video_path, state.video_hash, self.config)
             finished_at = datetime.now()
             self._record_stage_result(state, stage.name, "success", started_at, finished_at)
             logger.info(f"Etapa {stage.name} concluida com sucesso.")
@@ -248,6 +289,8 @@ class PipelineRunner:
         video_path: Path,
     ) -> None:
         logger.info(f"Executando grupo paralelo: {[s.name for s in stages]}")
+        if stages:
+            state.current_stage = stages[0].name
         with ThreadPoolExecutor(max_workers=self.max_parallel_workers) as executor:
             future_to_stage = {}
             for stage in stages:
@@ -256,8 +299,7 @@ class PipelineRunner:
                     logger.warning(f"Nenhum handler para {stage.name}")
                     continue
                 started_at = datetime.now()
-                state.current_stage = stage.name
-                future = executor.submit(handler, video_path, state.video_hash, self.config, state)
+                future = executor.submit(handler, video_path, state.video_hash, self.config)
                 future_to_stage[future] = (stage.name, started_at)
 
             for future in as_completed(future_to_stage):

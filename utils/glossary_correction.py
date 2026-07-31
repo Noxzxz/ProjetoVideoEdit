@@ -36,11 +36,14 @@ def _levenshtein(a: str, b: str) -> int:
     return prev[-1]
 
 
-def load_glossary(glossary_name: str) -> list[str]:
+def load_glossary(
+    glossary_name: str, glossaries_dir: str | None = None
+) -> list[str]:
     """Carrega termos de `glossaries/<glossary_name>.md`. Vazio se ausente."""
     if not glossary_name:
         return []
-    path = Path(settings.glossaries_dir) / f"{glossary_name}.md"
+    base = glossaries_dir or settings.glossaries_dir
+    path = Path(base) / f"{glossary_name}.md"
     if not path.exists():
         logger.warning(f"Glossario nao encontrado: {path}")
         return []
@@ -54,9 +57,11 @@ def load_glossary(glossary_name: str) -> list[str]:
     return terms
 
 
-def build_initial_prompt_from_glossary(glossary_name: str) -> str:
+def build_initial_prompt_from_glossary(
+    glossary_name: str, glossaries_dir: str | None = None
+) -> str:
     """Monta initial_prompt para o Whisper a partir do glossario."""
-    terms = load_glossary(glossary_name)
+    terms = load_glossary(glossary_name, glossaries_dir=glossaries_dir)
     return ", ".join(terms) if terms else ""
 
 

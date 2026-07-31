@@ -6,6 +6,8 @@ import math
 import wave
 from pathlib import Path
 
+from utils.file_utils import load_json, save_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,3 +92,39 @@ def find_energy_peaks(
     selected = [p for p in peaks if p[0] >= threshold]
     selected.sort(key=lambda p: p[0], reverse=True)
     return [(p[1], p[2]) for p in selected[:top_n]]
+
+
+def get_energy_peaks_cached(
+    audio_path: str | Path,
+    cache_dir: Path | None,
+    window_seconds: float = 30.0,
+    top_n: int = 8,
+    factor_above_mean: float = 1.8,
+) -> list[tuple[float, float]]:
+    """Picos RMS cacheados por tamanho+mtime do WAV (B14), evitando reler o arquivo."""
+    audio = Path(audio_path)
+    if cache_dir is None or not audio.exists():
+        return find_energy_peaks(
+            audio, window_seconds=window_seconds, top_n=top_n,
+            factor_above_mean=factor_above_mean,
+        )
+
+    cache_file = Path(cache_dir) / "audio_peaks.json"
+    stat = audio.stat()
+    cached = load_json(cache_file)
+    if (
+        cached
+        and cached.get("size") == stat.st_size
+        and cached.get("mtime_ns") == stat.st_mtime_ns
+    ):
+        return [tuple(p) for p in cached.get("peaks", [])]
+
+    peaks = find_energy_peaks(
+        audio, window_seconds=window_seconds, top_n=top_n,
+        factor_above_mean=factor_above_mean,
+    )
+    save_json(
+        cache_file,
+        {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "peaks": peaks},
+    )
+    return peaks

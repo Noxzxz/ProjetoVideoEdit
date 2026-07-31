@@ -9,12 +9,17 @@ from shared.exceptions import ContentGenerationError
 from utils.file_utils import load_json
 
 
-def test_prompt_not_found_raises_error(monkeypatch):
+def _fast_config(**overrides) -> Settings:
+    cfg = Settings()
+    cfg.llm_call_delay_seconds = 0.0
+    for key, value in overrides.items():
+        setattr(cfg, key, value)
+    return cfg
+
+
+def test_prompt_not_found_raises_error():
     agent = ContentIntelligenceAgent()
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.prompts_dir", "/inexistente/prompts"
-    )
-    config = type("Settings", (), {"shorts_target_count": 4})()
+    config = _fast_config(prompts_dir="/inexistente/prompts")
     with pytest.raises(ContentGenerationError):
         agent.run({"video_id": "test", "segments": []}, 60.0, config)
 
@@ -47,9 +52,6 @@ def test_run_consolidation_failure_falls_back_to_chunk_seo(monkeypatch):
     """Regressione: SEO nao pode sair vazio quando a consolidacao final falha."""
     agent = ContentIntelligenceAgent()
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
         if "Shorts" in system_prompt:
@@ -65,7 +67,7 @@ def test_run_consolidation_failure_falls_back_to_chunk_seo(monkeypatch):
             {"start": 30, "end": 40, "text": "hoje vamos falar"},
         ],
     }
-    result = agent.run(transcript, 50.0, Settings())
+    result = agent.run(transcript, 50.0, _fast_config())
     assert result.seo.title == "Titulo do video"
     assert result.seo.description == "Descricao do video"
     assert result.seo.hashtags == ["vampiro", "worldofdarkness"]
@@ -91,9 +93,6 @@ def test_run_uses_consolidated_seo_and_chapters(monkeypatch):
             "summary": {"overview": "o", "key_points": ["k"], "next_steps": ["n"]},
         },
     )
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
         if "Shorts" in system_prompt:
@@ -109,7 +108,7 @@ def test_run_uses_consolidated_seo_and_chapters(monkeypatch):
             {"start": 30, "end": 40, "text": "hoje vamos falar"},
         ],
     }
-    result = agent.run(transcript, 50.0, Settings())
+    result = agent.run(transcript, 50.0, _fast_config())
     assert result.seo.title == "Titulo consolidado"
     assert [c.title for c in result.seo.chapters] == ["Intro", "Desenvolvimento"]
 
@@ -118,9 +117,6 @@ def test_run_discards_unanchored_shorts(monkeypatch):
     """Regressione D18: candidato cujo gancho/payoff nao existe na transcricao e descartado."""
     agent = ContentIntelligenceAgent()
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
     monkeypatch.setattr(
         "agents.content_intelligence.agent.load_transcript_segments",
         lambda video_hash: [
@@ -148,7 +144,7 @@ def test_run_discards_unanchored_shorts(monkeypatch):
             {"start": 30, "end": 40, "text": "hoje vamos falar do principio"},
         ],
     }
-    result = agent.run(transcript, 40.0, Settings(), video_hash="abc123")
+    result = agent.run(transcript, 40.0, _fast_config(), video_hash="abc123")
     assert result.shorts == []
 
 
@@ -157,10 +153,7 @@ def test_run_stage_passes_video_hash_to_anchoring(monkeypatch, tmp_path):
     agent = ContentIntelligenceAgent()
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
-    monkeypatch.setattr("agents.content_intelligence.agent.settings.cache_dir", str(cache_dir))
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
+    monkeypatch.setattr("utils.hash_utils.settings.cache_dir", str(cache_dir))
 
     video_hash = "abc123"
     video_cache = cache_dir / video_hash
@@ -221,7 +214,7 @@ def test_run_stage_passes_video_hash_to_anchoring(monkeypatch, tmp_path):
 
     monkeypatch.setattr("agents.content_intelligence.agent.generate", fake_generate)
 
-    agent.run_stage(Path("/fake/video.mp4"), video_hash, Settings(), None)
+    agent.run_stage(Path("/fake/video.mp4"), video_hash, _fast_config())
 
     assert captured["video_hash"] == video_hash
     content = load_json(video_cache / "content.json")
@@ -251,16 +244,15 @@ _TRANSCRIPT = {
 def _setup_content_run(monkeypatch, agent, check_returns):
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
     monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
-    monkeypatch.setattr(
         "agents.content_intelligence.agent.load_transcript_segments",
         lambda video_hash: [
             {"id": 1, "start": 30, "end": 40, "text": "hoje vamos falar do principio"},
             {"id": 2, "start": 60, "end": 70, "text": "e foi assim que ele caiu"},
         ],
     )
-    monkeypatch.setattr(agent, "_check_standalone", lambda short, transcript: check_returns)
+    monkeypatch.setattr(
+        agent, "_check_standalone", lambda short, transcript, config: check_returns
+    )
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
         if "Shorts" in system_prompt:
@@ -274,7 +266,7 @@ def test_run_populates_standalone_scores(monkeypatch):
     """D19: critico de autocontencao preenche standalone_score/standalone_notes."""
     agent = ContentIntelligenceAgent()
     _setup_content_run(monkeypatch, agent, check_returns=(0.85, "Compreensivel sozinho"))
-    result = agent.run(_TRANSCRIPT, 100.0, Settings(), video_hash="abc123")
+    result = agent.run(_TRANSCRIPT, 100.0, _fast_config(), video_hash="abc123")
     assert len(result.shorts) == 1
     assert result.shorts[0].standalone_score == 0.85
     assert result.shorts[0].standalone_notes == "Compreensivel sozinho"
@@ -284,5 +276,49 @@ def test_run_discards_short_below_standalone_threshold(monkeypatch):
     """D19: candidato que depende de contexto externo e descartado."""
     agent = ContentIntelligenceAgent()
     _setup_content_run(monkeypatch, agent, check_returns=(0.2, "Depende de contexto anterior"))
-    result = agent.run(_TRANSCRIPT, 100.0, Settings(), video_hash="abc123")
+    result = agent.run(_TRANSCRIPT, 100.0, _fast_config(), video_hash="abc123")
     assert result.shorts == []
+
+
+def test_run_checkpoints_chunks_and_reuses_them(monkeypatch, tmp_path):
+    """D29: map-reduce grava checkpoint por chunk e nao reprocessa em re-execução."""
+    agent = ContentIntelligenceAgent()
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr("utils.hash_utils.settings.cache_dir", str(cache_dir))
+    video_hash = "abc123"
+    video_cache = cache_dir / video_hash
+    video_cache.mkdir()
+    (video_cache / "metadata.json").write_text(
+        '{"metadata": {"duration_seconds": 100.0}}', encoding="utf-8"
+    )
+    monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
+
+    calls = {"chunks": 0, "shorts": 0}
+
+    def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
+        if "Shorts" in system_prompt:
+            calls["shorts"] += 1
+            return json.dumps({"shorts": []})
+        calls["chunks"] += 1
+        return _chunk_json_response()
+
+    monkeypatch.setattr("agents.content_intelligence.agent.generate", fake_generate)
+
+    transcript = {
+        "video_id": "v1",
+        "segments": [
+            {"start": 0, "end": 10, "text": "bem vindos ao canal"},
+            {"start": 30, "end": 40, "text": "hoje vamos falar"},
+        ],
+    }
+    config = _fast_config()
+    result1 = agent.run(transcript, 100.0, config, video_hash=video_hash)
+    assert calls["chunks"] == 1
+
+    checkpoint_files = list(video_cache.glob("chunks_*/chunk_000.json"))
+    assert len(checkpoint_files) == 1
+
+    result2 = agent.run(transcript, 100.0, config, video_hash=video_hash)
+    assert calls["chunks"] == 1  # reutilizou o checkpoint, nao chamou o LLM de novo
+    assert result2.seo.chapters[0].timestamp_seconds == result1.seo.chapters[0].timestamp_seconds

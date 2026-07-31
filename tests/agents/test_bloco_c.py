@@ -17,6 +17,15 @@ from utils.glossary_correction import (
     load_glossary,
 )
 
+
+def _fast_config(**overrides) -> Settings:
+    cfg = Settings()
+    cfg.llm_call_delay_seconds = 0.0
+    for key, value in overrides.items():
+        setattr(cfg, key, value)
+    return cfg
+
+
 # --- D20: glossario ---
 
 def test_glossary_loads_terms():
@@ -40,6 +49,10 @@ def test_glossary_does_not_touch_common_words():
 def test_glossary_correction_in_transcript_cleaner(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "agents.transcript_cleaner.agent.settings.glossary_name", "vampiro"
+    )
+    monkeypatch.setattr(
+        "agents.transcript_cleaner.agent.generate",
+        lambda **kwargs: "a Camarilla esta aqui",
     )
     raw = TranscriptRaw(
         video_id="v1",
@@ -99,13 +112,10 @@ def test_detect_markers_without_ooc_words_is_backward_compatible():
 # --- D23/D24: campanha e hashtags chegam na consolidacao ---
 
 def test_load_hashtags_from_glossaries_dir(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.glossaries_dir", str(tmp_path)
-    )
     (tmp_path / "hashtags_vampiro.md").write_text(
         "# comentario\nVampiroAMascara\n# WorldOfDarkness\n\nRPG\n", encoding="utf-8"
     )
-    config = type("Settings", (), {"hashtags_file": "hashtags_vampiro.md"})()
+    config = _fast_config(hashtags_file="hashtags_vampiro.md", glossaries_dir=str(tmp_path))
     tags = ContentIntelligenceAgent._load_hashtags(config)
     assert tags == ["#VampiroAMascara", "#RPG"]
 
@@ -115,22 +125,23 @@ def test_consolidate_receives_campaign_and_hashtags(monkeypatch, tmp_path):
     campaign = tmp_path / "cronica.md"
     campaign.write_text("PC: Marcus (Ventrue)", encoding="utf-8")
 
-    config = Settings()
-    config.campaign_context_file = str(campaign)
-    config.hashtags_file = ""
+    config = _fast_config(campaign_context_file=str(campaign), hashtags_file="")
     captured = {}
 
     def fake_consolidate(
-        video_duration, chapters, thumbs, key_points, campaign_context="", allowed_hashtags=None
+        video_duration,
+        chapters,
+        thumbs,
+        key_points,
+        config,
+        campaign_context="",
+        allowed_hashtags=None,
     ):
         captured["campaign"] = campaign_context
         captured["hashtags"] = allowed_hashtags
         return {}
 
     monkeypatch.setattr(agent, "_consolidate", fake_consolidate)
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
         if "Shorts" in system_prompt:
@@ -162,9 +173,6 @@ def test_consolidate_receives_campaign_and_hashtags(monkeypatch, tmp_path):
 def test_content_type_passed_to_shorts_prompt(monkeypatch):
     agent = ContentIntelligenceAgent()
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
-    monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
     captured = {}
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
@@ -180,8 +188,7 @@ def test_content_type_passed_to_shorts_prompt(monkeypatch):
 
     monkeypatch.setattr("agents.content_intelligence.agent.generate", fake_generate)
 
-    config = Settings()
-    config.content_type = "lore"
+    config = _fast_config(content_type="lore")
     agent.run(
         {"video_id": "v1", "segments": [{"start": 0, "end": 10, "text": "bem vindos"}]},
         10.0,
@@ -196,17 +203,14 @@ def test_run_excludes_shorts_overlapping_ooc(monkeypatch, tmp_path):
     agent = ContentIntelligenceAgent()
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
     monkeypatch.setattr(
-        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
-    )
-    monkeypatch.setattr(
         agent,
         "_check_standalone",
-        lambda short, transcript: (0.9, "ok"),
+        lambda short, transcript, config: (0.9, "ok"),
     )
 
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
-    monkeypatch.setattr("agents.content_intelligence.agent.settings.cache_dir", str(cache_dir))
+    monkeypatch.setattr("utils.hash_utils.settings.cache_dir", str(cache_dir))
     video_cache = cache_dir / "abc123"
     video_cache.mkdir()
     (video_cache / "markers.json").write_text(
@@ -254,7 +258,7 @@ def test_run_excludes_shorts_overlapping_ooc(monkeypatch, tmp_path):
             {"id": 2, "start": 60, "end": 70, "text": "e foi assim que ele caiu"},
         ],
     }
-    result = agent.run(transcript, 100.0, Settings(), video_hash="abc123")
+    result = agent.run(transcript, 100.0, _fast_config(), video_hash="abc123")
     assert result.shorts == []
 
 

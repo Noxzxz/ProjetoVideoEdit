@@ -23,6 +23,7 @@ class PipelineState(BaseModel):
     stages: list[StageResult] = Field(default_factory=list)
     current_stage: str | None = None
     completed: bool = False
+    stage_fingerprints: dict[str, str] = Field(default_factory=dict)
 
     def last_successful_stage(self) -> str | None:
         for stage_result in reversed(self.stages):

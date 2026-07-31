@@ -3,7 +3,6 @@ from pathlib import Path
 
 from config.settings import Settings
 from schemas.edit import CutInstruction, CutList, EditResult
-from schemas.state import PipelineState
 from services.ffmpeg_service import apply_cut_list
 from shared.exceptions import EditingError
 from utils.file_utils import load_json, save_json
@@ -105,9 +104,7 @@ class VideoEditAgent:
             cut_list=cut_list,
         )
 
-    def run_stage(
-        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
-    ) -> None:
+    def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
         cache_dir = get_cache_dir(video_hash)
         metadata = load_json(cache_dir / "metadata.json")
         transcript_data = load_json(cache_dir / "cleaned.json")

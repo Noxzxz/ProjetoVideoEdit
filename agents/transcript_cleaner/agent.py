@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 
 from config.settings import Settings, settings
-from schemas.state import PipelineState
 from schemas.transcript import TranscriptCleaned, TranscriptRaw, TranscriptSegment
 from services.llm_provider import generate
 from shared.exceptions import CleaningError
@@ -36,12 +35,15 @@ def apply_regex_cleaning(text: str) -> str:
 
 
 class TranscriptCleanerAgent:
-    def run(self, transcript: TranscriptRaw) -> TranscriptCleaned:
+    def run(
+        self, transcript: TranscriptRaw, config: Settings | None = None
+    ) -> TranscriptCleaned:
         """Limpa transcrição: glossário (D20) + regex (listas fechadas) + LLM em lote."""
+        cfg = config or settings
 
         # 0. Correcao deterministica de vocabulario de sistema (D20) - entre
         #    SPEECH_RECOGNITION e TRANSCRIPT_CLEANING, antes de qualquer limpeza por LLM
-        glossary = load_glossary(settings.glossary_name)
+        glossary = load_glossary(cfg.glossary_name, glossaries_dir=cfg.glossaries_dir)
         if glossary:
             transcript = TranscriptRaw(
                 video_id=transcript.video_id,
@@ -64,7 +66,7 @@ class TranscriptCleanerAgent:
             if not batch:  # Batch vazio
                 continue
             if idx > 0:
-                time.sleep(3)  # Pausa entre lotes para evitar rate limit
+                time.sleep(cfg.llm_call_delay_seconds)  # Pausa entre lotes
 
             # Formatar para LLM (inclui timestamps para contexto)
             prompt_lines = []
@@ -88,8 +90,9 @@ Responda APENAS com o texto corrigido, sem anotações."""
                         "Você é um editor de texto especializado em transcrição em português."
                     ),
                     user_prompt=prompt,
-                    temperature=settings.ollama_temperature,
+                    temperature=cfg.ollama_temperature,
                     json_mode=False,
+                    config=cfg,
                 )
                 # Valida anti-alucinação (variação relativa entre 50% e 200%)
                 original_length = sum(len(s.text) for s in batch)
@@ -136,13 +139,11 @@ Responda APENAS com o texto corrigido, sem anotações."""
             full_text_cleaned=" ".join(s.text.strip() for s in cleaned_segments_after_llm),
         )
 
-    def run_stage(
-        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
-    ) -> None:
+    def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
         cache_dir = get_cache_dir(video_hash)
         transcript_data = load_json(cache_dir / "transcript.json")
         if not transcript_data:
             raise FileNotFoundError(f"Transcricao nao encontrada no cache para hash {video_hash}")
         transcript = TranscriptRaw(**transcript_data)
-        result = self.run(transcript)
+        result = self.run(transcript, config)
         save_json(cache_dir / "cleaned.json", result.model_dump())

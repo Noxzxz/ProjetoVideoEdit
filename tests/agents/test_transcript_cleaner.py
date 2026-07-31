@@ -29,8 +29,11 @@ def test_regex_does_not_remove_ambiguous_words():
         assert apply_regex_cleaning(input_text) == input_text
 
 
-def test_transcript_cleaner_agent_run_returns_cleaned():
+def test_transcript_cleaner_agent_run_returns_cleaned(monkeypatch):
     """Testa que o agente limpa a transcrição após aplicação do regex."""
+    monkeypatch.setattr(
+        "agents.transcript_cleaner.agent.generate", lambda **kwargs: "tudo bem"
+    )
     agent = TranscriptCleanerAgent()
     raw = TranscriptRaw(
         video_id="test-abc123def456",
@@ -44,8 +47,11 @@ def test_transcript_cleaner_agent_run_returns_cleaned():
     assert "tudo bem" in cleaned.full_text_cleaned
 
 
-def test_batch_size_respects_25_segments():
+def test_batch_size_respects_25_segments(monkeypatch):
     """Testa que a limpeza em lote divide corretamente em batches."""
+    monkeypatch.setattr(
+        "agents.transcript_cleaner.agent.generate", lambda **kwargs: "palavra"
+    )
     agent = TranscriptCleanerAgent()
     segments = [
         TranscriptSegment(id=i, start=0.0, end=1.0, text=f"palavra {i}", confidence=0.9)

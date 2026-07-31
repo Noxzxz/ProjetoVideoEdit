@@ -23,6 +23,28 @@ def test_different_files_different_hash(tmp_path):
     assert compute_video_hash(f1) != compute_video_hash(f2)
 
 
+def test_compute_video_hash_detects_border_change(tmp_path):
+    """B12: mudanca no 1o MB (lido pelo hash de amostra) altera o hash."""
+    data = bytearray(5 * 1024 * 1024)
+    data[0] = 1
+    f = tmp_path / "big.bin"
+    f.write_bytes(bytes(data))
+    h1 = compute_video_hash(f)
+    data[0] = 2
+    f.write_bytes(bytes(data))
+    h2 = compute_video_hash(f)
+    assert h1 != h2
+
+
+def test_compute_video_hash_rejects_small_videos_differently(tmp_path):
+    """B12: arquivos pequenos (1 borda) seguem distintos por conteudo."""
+    f1 = tmp_path / "s1.bin"
+    f2 = tmp_path / "s2.bin"
+    f1.write_bytes(b"x" * 500)
+    f2.write_bytes(b"y" * 500)
+    assert compute_video_hash(f1) != compute_video_hash(f2)
+
+
 def test_save_and_load_json(tmp_path):
     path = tmp_path / "data.json"
     data = {"key": "value", "num": 42}

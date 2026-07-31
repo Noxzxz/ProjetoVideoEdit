@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 from config.settings import Settings
-from schemas.state import PipelineState
 from schemas.subtitle import SubtitleResult
 from schemas.transcript import TranscriptCleaned, TranscriptSegment
 from utils.file_utils import ensure_dir, load_json, save_json
@@ -109,9 +108,7 @@ class SubtitleStylingAgent:
             vtt_path=str(vtt_path),
         )
 
-    def run_stage(
-        self, video_path: Path, video_hash: str, config: Settings, state: PipelineState
-    ) -> None:
+    def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
         cache_dir = get_cache_dir(video_hash)
         metadata = load_json(cache_dir / "metadata.json")
         cleaned_data = load_json(cache_dir / "cleaned.json")
