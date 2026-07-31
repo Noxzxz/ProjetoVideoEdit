@@ -76,13 +76,17 @@ def parse_srt_from_vtt_body(body: str, video_id: str) -> TranscriptRaw:
         lines = block.strip().split("\n")
         if len(lines) < 2:
             continue
-        match = SRT_LINE_RE.search(lines[0] if len(lines) > 0 else "")
+        match = SRT_LINE_RE.search(lines[0])
+        ts_line_idx = 0
+        if not match and len(lines) > 1:
+            match = SRT_LINE_RE.search(lines[1])
+            ts_line_idx = 1
         if not match:
             continue
 
         start = _parse_timestamp(*match.groups()[:4])
         end = _parse_timestamp(*match.groups()[4:])
-        content = "\n".join(lines[1:]) if len(lines) > 1 else ""
+        content = "\n".join(lines[ts_line_idx + 1:]) if len(lines) > ts_line_idx + 1 else ""
         content = content.strip().replace("\n", " ")
 
         segments.append(

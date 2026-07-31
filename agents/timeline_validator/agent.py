@@ -101,25 +101,34 @@ class TimelineValidatorAgent:
                 logger.warning(f"Descartado ShortCandidate invalido: {short}")
                 continue
 
-            # Snap to phrase boundary
-            if transcript:
-                clamped.start = _snap_to_phrase_boundary(
-                    clamped.start, transcript, direction="left"
-                )
-                clamped.end = _snap_to_phrase_boundary(
-                    clamped.end, transcript, direction="right"
-                )
+            valid_shorts.append(clamped)
 
-            # Enforce minimum spacing between shorts
-            if valid_shorts:
-                last = valid_shorts[-1]
-                if clamped.start - last.end < min_spacing:
-                    clamped.start = last.end + min_spacing
-                    if clamped.end - clamped.start < min_duration:
-                        clamped.end = clamped.start + min_duration
+        # Snap to phrase boundary (opcional)
+        if transcript:
+            for short in valid_shorts:
+                short.start = _snap_to_phrase_boundary(
+                    short.start, transcript, direction="left"
+                )
+                short.end = _snap_to_phrase_boundary(
+                    short.end, transcript, direction="right"
+                )
+                if short.end - short.start > max_duration:
+                    short.end = short.start + max_duration
 
-            if clamped.end <= video_duration_seconds and clamped.end > clamped.start:
-                valid_shorts.append(clamped)
+        # Ordenar cronologicamente para aplicar espaçamento entre shorts sucessivos
+        valid_shorts.sort(key=lambda s: s.start)
+
+        spaced_shorts: list[ShortCandidate] = []
+        for short in valid_shorts:
+            if spaced_shorts:
+                last = spaced_shorts[-1]
+                if short.start - last.end < min_spacing:
+                    short.start = last.end + min_spacing
+                    if short.end - short.start < min_duration:
+                        short.end = short.start + min_duration
+
+            if short.end <= video_duration_seconds and short.end > short.start:
+                spaced_shorts.append(short)
 
         return ContentIntelligenceResult(
             video_id=content.video_id,
@@ -129,7 +138,7 @@ class TimelineValidatorAgent:
                 hashtags=content.seo.hashtags,
                 chapters=valid_chapters,
             ),
-            shorts=valid_shorts,
+            shorts=spaced_shorts,
             thumbnail_suggestions=content.thumbnail_suggestions,
             summary=content.summary,
         )

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from config.settings import Settings
 from schemas.transcript import TranscriptRaw
-from services.whisper_service import transcribe
+from services.whisper_service import transcribe, unload_whisper_model
 from utils.file_utils import load_json, save_json
 from utils.hash_utils import get_cache_dir, get_video_hash_from_id
 
@@ -33,4 +33,7 @@ class SpeechRecognitionAgent:
         metadata = load_json(cache_dir / "metadata.json")
         if not metadata:
             raise FileNotFoundError(f"Metadados nao encontrados no cache para hash {video_hash}")
-        self.run(metadata["video_id"], metadata["audio_path"], config)
+        try:
+            self.run(metadata["video_id"], metadata["audio_path"], config)
+        finally:
+            unload_whisper_model()

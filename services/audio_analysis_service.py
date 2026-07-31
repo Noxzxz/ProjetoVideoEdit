@@ -1,10 +1,10 @@
 """Analise de energia de audio (RMS) para apoio a candidatos a short (D21)."""
 
-import array
 import logging
-import math
 import wave
 from pathlib import Path
+
+import numpy as np
 
 from utils.file_utils import load_json, save_json
 
@@ -59,15 +59,13 @@ def find_energy_peaks(
                 if not raw:
                     break
 
-                chunk = array.array("h")
-                chunk.frombytes(raw)
-
-                length = len(chunk) // n_channels
-                total = 0.0
-                for i in range(length):
-                    s = chunk[i * n_channels]
-                    total += s * s
-                rms = math.sqrt(total / max(length, 1))
+                samples = np.frombuffer(raw, dtype=np.int16)
+                if n_channels > 1:
+                    total_len = len(samples) // n_channels * n_channels
+                    mono = samples[:total_len].reshape(-1, n_channels)[:, 0].astype(np.float64)
+                else:
+                    mono = samples.astype(np.float64)
+                rms = float(np.sqrt(np.mean(mono ** 2)))
 
                 win_start = frames_read / framerate
                 win_end = min(

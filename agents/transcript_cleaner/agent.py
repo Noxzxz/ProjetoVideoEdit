@@ -52,7 +52,9 @@ class TranscriptCleanerAgent:
             )
 
         # 1. Regex cleaning
-        cleaned_texts = [apply_regex_cleaning(s.text) for s in transcript.segments]
+        cleaned_by_id: dict[int, str] = {}
+        for s in transcript.segments:
+            cleaned_by_id[s.id] = apply_regex_cleaning(s.text)
 
         # 2. LLM cleaning (processamento em lote)
         batch_size = 15
@@ -68,7 +70,7 @@ class TranscriptCleanerAgent:
             if idx > 0:
                 time.sleep(cfg.llm_call_delay_seconds)  # Pausa entre lotes
 
-            # Formatar para LLM (inclui timestamps para contexto)
+            # Formatar para LLM (uma linha por segmento, com timestamp para contexto)
             prompt_lines = []
             for seg in batch:
                 timestamp_part = f"[{seg.start:.2f}s - {seg.end:.2f}s]"
@@ -78,23 +80,27 @@ class TranscriptCleanerAgent:
             prompt += """
 
 Limpeza adicional:
-- Mantenha apenas o que está no original
-- Corrija pontuação, espaços e capitalização
-- Não invente conteúdo
+- Mantenha apenas o que esta no original
+- Corrija pontuacao, espacos e capitalizacao
+- NAO invente conteudo
+- Retorne UMA linha corrigida por segmento, na mesma ordem, sem timestamps."""
 
-Responda APENAS com o texto corrigido, sem anotações."""
+            try:
+                llm_prompt_path = Path(cfg.prompts_dir) / "cleaning_llm.md"
+                system_prompt = llm_prompt_path.read_text(encoding="utf-8")
+            except Exception:
+                system_prompt = (
+                    "Voce e um editor de texto especializado em transcricao em portugues."
+                )
 
             try:
                 llm_response = generate(
-                    system_prompt=(
-                        "Você é um editor de texto especializado em transcrição em português."
-                    ),
+                    system_prompt=system_prompt,
                     user_prompt=prompt,
                     temperature=cfg.ollama_temperature,
                     json_mode=False,
                     config=cfg,
                 )
-                # Valida anti-alucinação (variação relativa entre 50% e 200%)
                 original_length = sum(len(s.text) for s in batch)
                 llm_length = len(llm_response)
                 if not (0.5 * original_length <= llm_length <= 2.0 * original_length):
@@ -102,33 +108,38 @@ Responda APENAS com o texto corrigido, sem anotações."""
                         f"LLM gerou tamanho inesperado: {llm_length} (original: {original_length})"
                     )
 
+                llm_lines = [line.strip() for line in llm_response.splitlines() if line.strip()]
+                if len(llm_lines) == len(batch):
+                    for i, seg in enumerate(batch):
+                        cleaned_segments_after_llm.append(
+                            TranscriptSegment(
+                                id=seg.id,
+                                start=seg.start,
+                                end=seg.end,
+                                text=llm_lines[i],
+                                confidence=seg.confidence,
+                            )
+                        )
+                else:
+                    for seg in batch:
+                        cleaned_segments_after_llm.append(
+                            TranscriptSegment(
+                                id=seg.id,
+                                start=seg.start,
+                                end=seg.end,
+                                text=cleaned_by_id.get(seg.id, seg.text),
+                                confidence=seg.confidence,
+                            )
+                        )
+            except Exception as e:
+                logger.error(f"Falha no LLM para batch {idx}: {e}")
                 for seg in batch:
                     cleaned_segments_after_llm.append(
                         TranscriptSegment(
                             id=seg.id,
                             start=seg.start,
                             end=seg.end,
-                            text=seg.text,
-                            confidence=seg.confidence,
-                        )
-                    )
-            except Exception as e:
-                logger.error(f"Falha no LLM para batch {batch}: {e}")
-                # Se LLM falhar, retorna o texto com regex apenas
-                start_idx = len(cleaned_segments_after_llm)
-                for i, seg in enumerate(batch):
-                    original_idx = start_idx + i
-                    cleaned_text = (
-                        cleaned_texts[original_idx]
-                        if original_idx < len(cleaned_texts)
-                        else seg.text
-                    )
-                    cleaned_segments_after_llm.append(
-                        TranscriptSegment(
-                            id=seg.id,
-                            start=seg.start,
-                            end=seg.end,
-                            text=cleaned_text,
+                            text=cleaned_by_id.get(seg.id, seg.text),
                             confidence=seg.confidence,
                         )
                     )

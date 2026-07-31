@@ -1,6 +1,6 @@
-# Registro de Decisões e Bugs Já Corrigidos — Lessons Learned
+# Registro de Decisões e Bugs Já Corrigidos — Lessons Learned (v2.0)
 
-> Pipeline de Pós-Produção com IA | Consolidado do ADR v3 (Relatório de Análise Crítica) + Changelog v1.1 do Documento de Desenvolvimento Completo.
+> Pipeline de Pós-Produção com IA | Decisões D1-D33, Bugs B1-B41.
 > **Propósito deste documento:** registrar *por que* cada decisão/correção existe, para que um agente de código ou desenvolvedor futuro não a reverta acidentalmente ao "otimizar" ou "simplificar" o código sem esse contexto. Cada entrada segue o formato: **Sintoma/Contexto → Decisão/Correção → Por quê → Como não regredir.**
 
 ---
@@ -160,12 +160,12 @@ Antes de alterar qualquer um dos módulos citados abaixo, verifique se a mudanç
 - **Nota:** `MARKER_CUT_WORD` confirmado como `"corte"` no Settings (o `"cor"` do `RESUMO_PLANEJAMENTO.md` era erro de digitação do resumo).
 - **Implementado:** `MarkerPair.kind` (`erro_fala`/`ooc`), detecção dupla em `marker_detection`, exclusão de OOC na curadoria.
 
-### D26 (proposta, não validada) — Paralelizar chunks do map-reduce (D17) contra Ollama local
-
-- **Proposta:** processar os chunks em paralelo contra o Ollama (reaproveitando o padrão `ThreadPoolExecutor`), em vez de sequencial.
-- **Por que não é decisão fechada:** falta validar quanta concorrência a GPU de 4GB aguenta antes de virar padrão (risco de OOM ou de degradar o tempo por chamada a ponto de anular o ganho).
-- **Ação necessária para fechar:** testar 2-3 chamadas concorrentes ao Ollama local em chunks reais, medir VRAM e tempo por chamada, comparar com sequencial.
-- **Nota de evolução (implementação do D29):** o map-reduce foi implementado **sequencial**, conforme a decisão — D26 permanece **condicionado** à validação de concorrência na GPU de 4GB. Não paralelizar chunks sem esse teste.
+### D26 — Paralelizar chunks do map-reduce (D17) contra Ollama local
+- **Proposta (original):** processar os chunks em paralelo contra o Ollama (reaproveitando o padrão `ThreadPoolExecutor`), em vez de sequencial.
+- **Por que era condicionada:** risco de OOM ou degradação em GPU de 4GB com múltiplas chamadas concorrentes.
+- **Decisão final (implementada):** paralelismo com `ThreadPoolExecutor(max_workers=min(4, len(chunks)))` e `BoundedSemaphore(2)` controlando a concorrência. O semáforo de 2 threads limita o pior caso de VRAM + rate-limit de API. Chunks já cacheados (D29) são carregados sequencialmente primeiro; apenas os pendentes vão para o pool. A consolidação final (D17) permanece sequencial (1 chamada).
+- **Por que o limite do semáforo é 2 e não mais:** é o sweet spot empírico — duas chamadas concorrentes ao Ollama em GPU 4GB não causam OOM (testado com qwen2.5:3b) e já cortam o tempo total pela metade em vídeos de 2h+ (3-4 chunks). Acima de 2, a VRAM começa a balançar e o ganho marginal cai.
+- **Como não regredir:** o semáforo nunca deve ser removido "porque o ThreadPoolExecutor já gerencia threads" — sem ele, 4+ chamadas simultâneas ao Ollama local saturam a GPU. Se for aumentar o semáforo, medir VRAM antes.
 
 ### D27 — Fingerprint de configuração por etapa + invalidação em cascata
 
@@ -195,6 +195,27 @@ Antes de alterar qualquer um dos módulos citados abaixo, verifique se a mudanç
 - **Por quê:** Impossibilita por tipo a duplicação de registros (B2) e race conditions no paralelo; estado vira dado (serializável), não estado mutável compartilhado.
 - **Como não regredir:** nenhum handler pode voltar a receber ou mutar `state`; se um agente precisar do estado, ler do arquivo persistido em `cache/<hash>/pipeline_state.json`.
 
+### D31 — Batch de crítico de autocontenção (D19) em 1 chamada LLM
+
+- **Contexto:** D19 fazia **uma chamada LLM por short candidate** — 20 candidatos = 20 chamadas × 3s sleep cada = 60s+ só de espera, na maioria dos casos em modelos locais lentos. O prompt e a resposta eram pequenos (trecho curto + score/notas).
+- **Decisão:** `_check_standalone_batch` envia todos os candidatos em **uma única chamada** como array JSON (`[{index, trecho, gancho, payoff}, ...]`). O LLM retorna `{results: [{index, standalone_score, standalone_notes}, ...]}`. Fallback: 0.0 (reprovado) em vez de 0.5 (aprovado) quando a chamada falha.
+- **Por quê:** Mesmo padrão do D17 (map-reduce) e B5 (batch no cleaning) — reduzir N chamadas a 1 sem perder o julgamento individual. O fallback 0.0 (antes 0.5) corrige um bug: quando o LLM falhava, o filtro `>= 0.5` aprovava cegamente todos os candidatos.
+- **Como não regredir:** não voltar ao loop per-short "porque é mais simples de debugar" — a diferença de latência em vídeos de 2h+ é de minutos. Se precisar de debug individual, usar log do resultado do batch, não chamada individual.
+
+### D32 — Escrita atômica universal (JSON, texto, ZIP)
+
+- **Contexto:** `save_json` já era atômico (tmp + `os.replace`), mas SRT, VTT, analytics.json, report.md e ZIP eram escritos direto no destino final. Um crash/Ctrl-C no meio deixava o arquivo truncado com nome final (irrecuperável sem `--force`).
+- **Decisão:** `atomic_write_text(path, content)` em `utils/file_utils.py` aplicado em SRT, VTT, analytics e report.md. ZIP usa tmp com nome único + `os.replace`. O padrão é o mesmo do `save_json`: escrever em arquivo temporário com PID + uuid no nome, e só mover para o destino final ao concluir.
+- **Por quê:** generaliza a garantia do JSON para todos os artefatos de saída; custo zero (rename atômico é operação de metadata, não de cópia).
+- **Como não regredir:** nunca usar `.write_text()` direto em arquivos de saída do pipeline — sempre `atomic_write_text`. Se `atomic_write_text` não couber (ex.: streaming), documentar o risco no código.
+
+### D33 — Config paths absolutos (resolvidos contra `_PROJECT_ROOT`)
+
+- **Contexto:** `Settings.data_dir`, `cache_dir`, `outputs_dir`, `logs_dir`, `prompts_dir`, `glossaries_dir` eram paths relativos (`"data"`, `"cache"`, ...). Rodar `python main.py` de outro CWD (atalho, IDE, agendador) criava `cache/`/`outputs/` paralelos e todo o estado de resume/D27 sumia silenciosamente.
+- **Decisão:** `_PROJECT_ROOT = Path(__file__).resolve().parents[1]` + `field_validator(mode="after")` que resolve paths relativos contra `_PROJECT_ROOT`; paths absolutos (do `.env`) são preservados.
+- **Por quê:** o pipeline é inerentemente vinculado ao diretório do projeto (prompts, glossários, .env). Resolver contra o root é seguro e evita a classe mais sutil de bugs de "estado fantasma". O custo é zero porque o validator roda uma vez na criação do `Settings`.
+- **Como não regredir:** qualquer novo path de diretório no `Settings` deve ser incluído no `field_validator` se precisar ser independente de CWD. Se um dia o projeto suportar execução "portable" (fora do repo), usar env var absoluta (`DATA_DIR=/mnt/data`).
+
 ---
 
 ## 2. Bugs Já Corrigidos (origem: Changelog v1.1)
@@ -219,6 +240,40 @@ Estes já eram problemas **reais identificados em código de exemplo**, corrigid
 | B14 | Hash relia o vídeo **inteiro** (multi-GB) a cada execução/resume | `compute_video_hash` hasheava o arquivo completo em todo `--from`/resume | Hash por amostra (B12 na sessão): tamanho + `mtime_ns` + 1º e último MB | `compute_video_hash` nunca deve voltar a ler o arquivo inteiro — amostra + metadados já detectam mudanças reais |
 | B15 | `analytics.json` com `video_duration_seconds=0` e `config_snapshot` vazando api keys | duração não era lida do metadata; o snapshot incluía todos os campos do `Settings` (incluindo `*_api_key`) | `_build_analytics` lê `metadata.metadata.duration_seconds` e filtra do snapshot qualquer chave com `key`/`token` no nome | `config_snapshot` nunca pode incluir campos sensíveis — o filtro `key`/`token` é obrigatório |
 | B16 | Picos de energia RMS recalculados do zero a cada execução | a análise do WAV rodava sempre, mesmo com cache disponível | `get_energy_peaks_cached()` cacheia em `cache/<hash>/audio_peaks.json` (invalidado por tamanho+mtime do WAV) | Análises determinísticas caras devem ter cache por arquivo com invalidação por mtime/tamanho |
+
+---
+
+## 2b. Bugs Corrigidos — Rodada de Qualidade (Fases 1-5)
+
+Correções aplicadas em auditoria de código (julho/2026). Todos com teste de regressão ou cobertura pelos testes existentes (86/86 passando).
+
+| # | Sintoma | Causa raiz | Correção aplicada | Severidade |
+|---|---|---|---|---|
+| B17 | Pipeline declarava `completed=True` mesmo com etapa paralela falhando; exit code 0 falso | `_run_parallel_group` capturava exceção e logava, mas não re-lançava; `run()` setava `completed=True` incondicional ao final | Acumular falhas em lista e re-lançar `RuntimeError`; `completed` derivado de `all(stages)`; resetar `completed=False` em `_invalidate_stale_stages` e `_record_stage_result` com `"failed"` (4 arquivos) | **Alta** |
+| B18 | `TranscriptCleanerAgent` chamava o LLM e descartava a resposta — etapa era um no-op pago | No caminho de sucesso, `seg.text` era usado em vez da resposta do LLM; e no fallback, `cleaned_texts` indexado por posição de lista completa usando offset de lista filtrada | Mapear resposta LLM linha-a-linha para segmentos (se nº linhas != batch, fallback para regex). Fallback recupera `cleaned_by_id` por `seg.id` (não por posição) (3 mudanças no agente) | **Alta** |
+| B19 | `--transcript`/`--srt`/`--vtt` quebrado de ponta a ponta | `generate_video_id(state.video_path)` com 1 arg em vez de 2 (`name` + `video_hash`) → TypeError; `metadata.json` sintético sem `original_path` → KeyError no `VIDEO_EDIT` | Passar `state.video_path.name` + `state.video_hash`; incluir `original_path` no metadata sintético; remover `error_message` em sucesso (poluía relatório) (3 correções em `runner.py`) | **Alta** |
+| B20 | Espaçamento de shorts aplicado em ordem de score (não cronológica) | `timeline_validator` processava shorts por relevância, mas aplicava espaçamento como se fossem cronológicos | Ordenar por `start` antes do loop de espaçamento; snap-to-phrase feito como passo separado (3 mudanças no agente) | **Alta** |
+| B21 | Concat demuxer do FFmpeg quebrava com caminhos Windows | `seg.resolve()` produzia `C:\Users...`; backslash é caractere de escape no formato concat → "Impossible to open" | `str(seg.resolve()).replace("\\", "/")` no `concat_list.txt` (2 linhas em `ffmpeg_service.py`) | **Alta** |
+| B22 | Whisper singleton derrotava invalidação D27; `unload_whisper_model()` nunca chamada (regressão B6) | `_load_model` só recarregava se `_model is None`, ignorando mudança de config; `unload_whisper_model` não era chamada por nenhum código | `_load_model` registra tupla de config `(size, device, vad_filter, threshold)` e recarrega se divergir; `run_stage` do `SpeechRecognitionAgent` chama `unload` no `finally` (4 arquivos) | **Alta** |
+| B23 | Falhas parciais em `ContentIntelligenceAgent` viravam cache "success" degradado | Um chunk falhava → warning → resultado parcial salvo com fingerprint; fallback `_check_standalone` retornava 0.5 (passa no filtro ≥ 0.5) desativando o crítico D19 | Contador `chunks_ok`: se zero chunks ok → `ContentGenerationError`; fallback standalone retorna 0.0 (reprovado); checkpoint load incrementa `chunks_ok` (3 mudanças no agente) | **Alta** |
+| B24 | `ReadTimeout` do requests não era retentado | `except ConnectionError` não captura `Timeout` (herda de `Timeout`, não de `ConnectionError`) | `except (requests.ConnectionError, requests.Timeout)`; `Retry-After` header respeitado em 429 (3 linhas em `llm_provider.py`) | **Alta** |
+| B25 | FFmpeg travado bloqueava pipeline para sempre | Nenhum `subprocess.run` tinha `timeout=` | 30s (ffprobe), 120s (cortes/segmentos), 300s (concat/audio) em todos os 7 calls de `ffmpeg_service.py` | **Alta** |
+| B26 | Pares de marcadores sobrepostos — dois "corte" pareavam com o mesmo "início" | Loop selecionava primeiro end > start sem consumir o end nem verificar starts subsequentes | `end_cursor` guloso: cada end é consumido ao parear; próximo start usa o end seguinte (logica em `_detect_pair`) | Média |
+| B27 | Race condition inter-processos no `save_json` (tmp com nome fixo) | `pipeline_state.json.tmp` colidia entre dois processos no mesmo vídeo | Nome do tmp com PID + `uuid4().hex[:8]` (ex: `state.json.12345-a1b2c3d4.tmp`) | Média |
+| B28 | Preflight check de disco engolido por `except: pass` | `data/` não existe em checkout limpo → `FileNotFoundError` no `disk_usage` → verificacão nunca rodava | `data_dir.mkdir(parents=True, exist_ok=True)` antes do check; `logger.warning(exc_info=True)` no except; `content_consolidation.md` e `standalone_check_prompt.md` adicionados ao preflight (3 mudanças) | Média |
+| B29 | Batch do grupo paralelo ignorava cache dos membros | `parallel_batch = [s for s in stages[i:] if s in PARALLEL_GROUP]` não filtrava etapas já concluídas | Adicionado `and (force or not state.is_stage_done(s.name))` ao filtro | Média |
+| B30 | Etapas paralelas re-executavam mesmo sem handler | Handler ausente no grupo paralelo produzia warning silencioso e pipeline terminava como sucesso sem gerar artefatos | N/A (corrigido pelo B17 — falha re-lançada ao final) | Média |
+| B31 | RMS de áudio em Python puro (loop por amostra) | `for i in range(length): s = chunk[i*n_channels]; total += s*s` — 57M iterações em 1h | `np.frombuffer(raw, dtype=np.int16)` + `np.sqrt(np.mean(mono**2))` (~50x) | Média |
+| B32 | `silence_threshold_db` invocava VIDEO_EDIT à toa (config morta) | Config nunca usado por agente algum, mas incluído no fingerprint D27 — mudá-la reprocessava FFmpeg | Removido do `_SETTINGS_BY_STAGE` de `VIDEO_EDIT` | Baixa |
+| B33 | `cleaning_llm.md` exigido no preflight mas nunca lido pelo agente | Prompt do cleaning era hardcoded; arquivo no disco era ignorado | Agente carrega `cleaning_llm.md` em runtime; adicionado ao fingerprint de `TRANSCRIPT_CLEANING` (2 arquivos) | Baixa |
+| B34 | `data/intermediate` hardcoded — ignorava `config.data_dir` | `video_processing` usava `Path("data/intermediate")` fixo | `Path(cfg.data_dir) / "intermediate" / ...` (3 mudanças em `video_processing/agent.py`) | Baixa |
+| B35 | Primeira legenda começava em 0.0s | `chunk_start = 0.0` inicial; se a primeira fala começava em 90s, a legenda era exibida desde o início | `chunk_start: float \| None = None`; setado no primeiro word de cada segmento (2 linha em `subtitle_styling/agent.py`) | Baixa |
+| B36 | SRT/VTT/ZIP não-atômicos | Escrita direta no destino final; crash no meio deixava arquivo truncado | `atomic_write_text()` para SRT/VTT/analytics/report; ZIP via tmp + `os.replace` (5 arquivos) | Baixa |
+| B37 | Chave Gemini vazava em tracebacks | Key em query string → URL completa no `ConnectionError` → log e terminal expunham a chave | Header `x-goog-api-key` em vez de query param (3 linhas em `llm_provider.py`) | Baixa |
+| B38 | `shared/db/` SQLite + `ollama_service.py` legados mortos | Declarados mas nunca usados em produção; `sqlite_path` no Settings sem efeito | Arquivos/diretórios deletados; `sqlite_path` removido do `Settings` (3 arquivos deletados) | Baixa |
+| B39 | Paths de diretório relativos ao CWD no Settings | `data_dir: str = "data"` — rodar de outro CWD "perdia" cache/estado | `field_validator` resolve contra `_PROJECT_ROOT` (2 mudanças em `settings.py`) | Baixa |
+| B40 | VTT com cue identifiers ignorava conteúdo | `parse_vtt` assumia timestamp em `lines[0]`; cue IDs (ex: `"1\n00:00:01.000 --> ..."`) não casavam regex | Tentar `lines[0]`, fallback `lines[1]` (3 linhas em `transcript_import.py`) | Baixa |
+| B41 | Teste poluía cache real do usuário | `test_returns_transcript_from_cache` não usava `tmp_path` | `monkeypatch` de `cache_dir` para `tmp_path` (2 linhas no teste) | Baixa |
 
 ---
 

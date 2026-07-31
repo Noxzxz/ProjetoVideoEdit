@@ -105,6 +105,7 @@ class PipelineRunner:
             for name, fp in state.stage_fingerprints.items()
             if name not in invalidated
         }
+        state.completed = False
         first_stale = ordered[stale_index].name
         logger.info(
             f"Config alterada (D27): invalidando etapas desde {first_stale}"
@@ -140,6 +141,8 @@ class PipelineRunner:
             state.stage_fingerprints[stage_name] = compute_stage_fingerprint(
                 stage_name, self.config
             )
+        if status == "failed":
+            state.completed = False
         state.updated_at = datetime.now()
         self._save_state(state)
 
@@ -192,7 +195,11 @@ class PipelineRunner:
                 continue
 
             if stage in PARALLEL_GROUP:
-                parallel_batch = [s for s in stages[i:] if s in PARALLEL_GROUP]
+                parallel_batch = [
+                    s for s in stages[i:]
+                    if s in PARALLEL_GROUP
+                    and (force or not state.is_stage_done(s.name))
+                ]
                 self._run_parallel_group(state, parallel_batch, video_path)
                 i += len(parallel_batch)
                 continue
@@ -207,10 +214,13 @@ class PipelineRunner:
             self._run_single_stage(state, stage, video_path)
             i += 1
 
-        state.completed = True
+        state.completed = all(s.status in ("success", "skipped") for s in state.stages)
         state.current_stage = None
         self._save_state(state)
-        logger.info("Pipeline concluido com sucesso.")
+        if state.completed:
+            logger.info("Pipeline concluido com sucesso.")
+        else:
+            logger.warning("Pipeline concluido com falhas em algumas etapas.")
         return state
 
     def _import_transcript(self, transcript_path: Path, state: PipelineState) -> None:
@@ -218,7 +228,7 @@ class PipelineRunner:
         from utils.slugify import generate_video_id
 
         cache_dir = get_cache_dir(state.video_hash)
-        video_id = generate_video_id(state.video_path)
+        video_id = generate_video_id(state.video_path.name, state.video_hash)
         transcript = import_transcript(transcript_path, video_id)
         save_json(cache_dir / "transcript.json", transcript.model_dump())
 
@@ -234,6 +244,7 @@ class PipelineRunner:
                 {
                     "video_id": video_id,
                     "audio_path": str(state.video_path),
+                    "original_path": str(state.video_path),
                     "metadata": {"duration_seconds": duration},
                 },
             )
@@ -246,7 +257,6 @@ class PipelineRunner:
                 started_at=now,
                 finished_at=now,
                 duration_seconds=0.0,
-                error_message="Transcricao importada externamente",
             )
             state.stages = [s for s in state.stages if s.stage != stage_name]
             state.stages.append(result)
@@ -302,6 +312,7 @@ class PipelineRunner:
                 future = executor.submit(handler, video_path, state.video_hash, self.config)
                 future_to_stage[future] = (stage.name, started_at)
 
+            failures: list[tuple[str, datetime, Exception]] = []
             for future in as_completed(future_to_stage):
                 stage_name, started_at = future_to_stage[future]
                 try:
@@ -311,7 +322,15 @@ class PipelineRunner:
                     logger.info(f"Etapa {stage_name} concluida (paralelo).")
                 except Exception as e:
                     finished_at = datetime.now()
-                    self._record_stage_result(
-                        state, stage_name, "failed", started_at, finished_at, str(e)
-                    )
-                    logger.error(f"Etapa {stage_name} falhou (paralelo): {e}")
+                    failures.append((stage_name, finished_at, e))
+                    logger.exception(f"Etapa {stage_name} falhou (paralelo): {e}")
+
+        for stage_name, finished_at, exc in failures:
+            self._record_stage_result(
+                state, stage_name, "failed", started_at, finished_at, str(exc)
+            )
+
+        if failures:
+            raise RuntimeError(
+                f"Etapas paralelas falharam: {', '.join(n for n, _, _ in failures)}"
+            )

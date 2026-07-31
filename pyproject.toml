@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 license = {text = "MIT"}
 readme = "README.md"
 dependencies = [
+    "numpy",
     "pydantic>=2",
     "pydantic-settings",
     "faster-whisper",

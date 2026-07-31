@@ -199,6 +199,10 @@ def test_run_stage_passes_video_hash_to_anchoring(monkeypatch, tmp_path):
             "summary": {"overview": "o", "key_points": ["k"], "next_steps": ["n"]},
         },
     )
+    monkeypatch.setattr(
+        agent, "_check_standalone_batch",
+        lambda shorts, transcript, config: None,
+    )
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
         if "Shorts" in system_prompt:
@@ -241,8 +245,14 @@ _TRANSCRIPT = {
 }
 
 
-def _setup_content_run(monkeypatch, agent, check_returns):
+def _setup_content_run(monkeypatch, agent, check_score, check_notes):
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
+
+    def fake_batch_standalone(shorts, transcript, config):
+        for s in shorts:
+            s.standalone_score = check_score
+            s.standalone_notes = check_notes
+
     monkeypatch.setattr(
         "agents.content_intelligence.agent.load_transcript_segments",
         lambda video_hash: [
@@ -251,7 +261,7 @@ def _setup_content_run(monkeypatch, agent, check_returns):
         ],
     )
     monkeypatch.setattr(
-        agent, "_check_standalone", lambda short, transcript, config: check_returns
+        agent, "_check_standalone_batch", fake_batch_standalone
     )
 
     def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
@@ -265,7 +275,7 @@ def _setup_content_run(monkeypatch, agent, check_returns):
 def test_run_populates_standalone_scores(monkeypatch):
     """D19: critico de autocontencao preenche standalone_score/standalone_notes."""
     agent = ContentIntelligenceAgent()
-    _setup_content_run(monkeypatch, agent, check_returns=(0.85, "Compreensivel sozinho"))
+    _setup_content_run(monkeypatch, agent, check_score=0.85, check_notes="Compreensivel sozinho")
     result = agent.run(_TRANSCRIPT, 100.0, _fast_config(), video_hash="abc123")
     assert len(result.shorts) == 1
     assert result.shorts[0].standalone_score == 0.85
@@ -275,7 +285,9 @@ def test_run_populates_standalone_scores(monkeypatch):
 def test_run_discards_short_below_standalone_threshold(monkeypatch):
     """D19: candidato que depende de contexto externo e descartado."""
     agent = ContentIntelligenceAgent()
-    _setup_content_run(monkeypatch, agent, check_returns=(0.2, "Depende de contexto anterior"))
+    _setup_content_run(
+        monkeypatch, agent, check_score=0.2, check_notes="Depende de contexto anterior"
+    )
     result = agent.run(_TRANSCRIPT, 100.0, _fast_config(), video_hash="abc123")
     assert result.shorts == []
 
@@ -293,6 +305,14 @@ def test_run_checkpoints_chunks_and_reuses_them(monkeypatch, tmp_path):
         '{"metadata": {"duration_seconds": 100.0}}', encoding="utf-8"
     )
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
+    monkeypatch.setattr(
+        agent, "_check_standalone_batch",
+        lambda shorts, transcript, config: None,
+    )
+    monkeypatch.setattr(
+        "agents.content_intelligence.agent.load_transcript_segments",
+        lambda video_hash: [],
+    )
 
     calls = {"chunks": 0, "shorts": 0}
 

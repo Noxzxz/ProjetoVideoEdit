@@ -1,6 +1,8 @@
 import json
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from config.settings import Settings
@@ -130,21 +132,35 @@ class ContentIntelligenceAgent:
             logger.warning(f"Falha na consolidacao final: {exc}")
             return {}
 
-    def _check_standalone(
-        self, short: ShortCandidate, transcript: dict, config: Settings
-    ) -> tuple[float, str]:
-        """Critico de autocontencao (D19): verifica se o trecho cortado e compreensivel sozinho."""
+    def _check_standalone_batch(
+        self,
+        shorts: list[ShortCandidate],
+        transcript: dict,
+        config: Settings,
+    ) -> None:
+        """Critico de autocontencao em lote (D19): uma unica chamada LLM para todos os shorts."""
+        if not shorts:
+            return
+
         prompt_path = Path(config.prompts_dir) / "standalone_check_prompt.md"
         if not prompt_path.exists():
             logger.warning(f"Prompt de autocontencao nao encontrado: {prompt_path}")
-            return 0.5, ""
+            for short in shorts:
+                short.standalone_score = 0.0
+                short.standalone_notes = "prompt ausente"
+            return
 
         prompt = prompt_path.read_text(encoding="utf-8")
-        trecho_text = self._format_transcript_range(transcript, short.start, short.end)
-        user_prompt = (
-            f"Trecho do short:\n{trecho_text}\n\n"
-            f"Gancho: {short.gancho}\nPayoff: {short.payoff}"
-        )
+        items = []
+        for i, short in enumerate(shorts):
+            trecho_text = self._format_transcript_range(transcript, short.start, short.end)
+            items.append({
+                "index": i,
+                "trecho": trecho_text,
+                "gancho": short.gancho,
+                "payoff": short.payoff,
+            })
+        user_prompt = json.dumps({"shorts": items}, ensure_ascii=False, indent=2)
 
         try:
             time.sleep(config.llm_call_delay_seconds)
@@ -152,12 +168,25 @@ class ContentIntelligenceAgent:
                 system_prompt=prompt, user_prompt=user_prompt, json_mode=True, config=config
             )
             data = json.loads(response)
-            score = float(data.get("standalone_score", 0.5))
-            notes = str(data.get("standalone_notes", ""))
-            return max(0.0, min(1.0, score)), notes
+            results = data.get("results", data) if isinstance(data, dict) else []
+            if isinstance(results, list):
+                for  r in results:
+                    idx = r.get("index", -1)
+                    score = float(r.get("standalone_score", 0.5))
+                    notes = str(r.get("standalone_notes", ""))
+                    score = max(0.0, min(1.0, score))
+                    if 0 <= idx < len(shorts):
+                        shorts[idx].standalone_score = score
+                        shorts[idx].standalone_notes = notes
+            else:
+                for short in shorts:
+                    short.standalone_score = 0.0
+                    short.standalone_notes = "resposta batch malformada"
         except Exception as exc:
-            logger.warning(f"Falha na verificacao de autocontencao: {exc}")
-            return 0.5, ""
+            logger.warning(f"Falha na verificacao batch de autocontencao: {exc}")
+            for short in shorts:
+                short.standalone_score = 0.0
+                short.standalone_notes = str(exc)
 
     @staticmethod
     def _load_ooc_ranges(video_hash: str) -> list[tuple[float, float]]:
@@ -233,7 +262,10 @@ class ContentIntelligenceAgent:
         all_thumbnails: list[str] = []
         all_summaries: list[str] = []
         per_chunk_seo: list[dict] = []
+        chunks_ok = 0
 
+        # Primeiro carrega checkpoints ja existentes (sem LLM, rapido)
+        pending_chunks: list[tuple[int, float, float, str]] = []
         for idx, (chunk_start, chunk_end, chunk_text) in enumerate(chunks):
             ckpt_path = ckpt_dir / f"chunk_{idx:03d}.json" if ckpt_dir else None
             ckpt = load_json(ckpt_path) if ckpt_path else None
@@ -243,48 +275,86 @@ class ContentIntelligenceAgent:
                 all_thumbnails.extend(ckpt.get("thumbnail_suggestions", []))
                 all_summaries.extend(ckpt.get("summary_key_points", []))
                 logger.info(f"Chunk {idx} carregado do checkpoint")
-                continue
+                chunks_ok += 1
+            else:
+                pending_chunks.append((idx, chunk_start, chunk_end, chunk_text))
 
-            user_prompt = (
-                f"Duracao do video: {video_duration_seconds:.1f}s\n"
-                f"Trecho: {chunk_start:.1f}s ate {chunk_end:.1f}s\n\n"
-                f"Transcricao (com timestamps):\n{chunk_text}"
-            )
+        # Processa chunks pendentes em paralelo com semaforo para rate-limit
+        if pending_chunks:
+            semaphore = threading.BoundedSemaphore(2)
 
-            try:
-                if idx > 0:
-                    time.sleep(config.llm_call_delay_seconds)
-                response = generate(
-                    system_prompt=prompt,
-                    user_prompt=user_prompt,
-                    json_mode=True,
-                    config=config,
+            def _process_one(
+                idx: int, chunk_start: float, chunk_end: float, chunk_text: str
+            ) -> dict | None:
+                ckpt_path = ckpt_dir / f"chunk_{idx:03d}.json" if ckpt_dir else None
+                user = (
+                    f"Duracao do video: {video_duration_seconds:.1f}s\n"
+                    f"Trecho: {chunk_start:.1f}s ate {chunk_end:.1f}s\n\n"
+                    f"Transcricao (com timestamps):\n{chunk_text}"
                 )
-                data = json.loads(response)
+                with semaphore:
+                    time.sleep(config.llm_call_delay_seconds)
+                    try:
+                        response = generate(
+                            system_prompt=prompt,
+                            user_prompt=user,
+                            json_mode=True,
+                            config=config,
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Falha ao processar chunk {idx}: {exc}")
+                        return None
+                try:
+                    data = json.loads(response)
+                except Exception as exc:
+                    logger.warning(f"Falha ao parsear chunk {idx}: {exc}")
+                    return None
                 base = self._extract_seo_data(data, transcript.get("video_id", ""))
-
-                chunk_chapters: list[Chapter] = []
+                chapters_out: list[dict] = []
                 for ch in base["seo"].get("chapters", []):
                     ch["timestamp_seconds"] += chunk_start
-                    chunk_chapters.append(Chapter(**ch))
-                all_chapters.extend(chunk_chapters)
-
-                per_chunk_seo.append(base["seo"])
-                all_thumbnails.extend(base.get("thumbnail_suggestions", []))
-                all_summaries.extend(base.get("summary", {}).get("key_points", []))
-
+                    chapters_out.append(Chapter(**ch).model_dump())
+                result = {
+                    "idx": idx,
+                    "chapters": chapters_out,
+                    "seo": base["seo"],
+                    "thumbs": base.get("thumbnail_suggestions", []),
+                    "keys": base.get("summary", {}).get("key_points", []),
+                }
                 if ckpt_path is not None:
                     save_json(
                         ckpt_path,
                         {
-                            "chapters": [c.model_dump() for c in chunk_chapters],
+                            "chapters": chapters_out,
                             "seo": base["seo"],
                             "thumbnail_suggestions": base.get("thumbnail_suggestions", []),
                             "summary_key_points": base.get("summary", {}).get("key_points", []),
                         },
                     )
-            except Exception as exc:
-                logger.warning(f"Falha ao processar chunk {idx}: {exc}")
+                return result
+
+            max_workers = min(4, len(pending_chunks))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(_process_one, idx, cs, ce, ct): idx
+                    for idx, cs, ce, ct in pending_chunks
+                }
+                for future in as_completed(futures):
+                    outcome = future.result()
+                    if outcome is not None:
+                        idx = outcome["idx"]
+                        all_chapters.extend(
+                            Chapter(**c) for c in outcome.get("chapters", [])
+                        )
+                        per_chunk_seo.append(outcome["seo"])
+                        all_thumbnails.extend(outcome.get("thumbs", []))
+                        all_summaries.extend(outcome.get("keys", []))
+                        chunks_ok += 1
+
+        if chunks_ok == 0 and len(chunks) > 0:
+            raise ContentGenerationError(
+                "Nenhum chunk processado com sucesso em CONTENT_INTELLIGENCE"
+            )
 
         all_chapters.sort(key=lambda c: c.timestamp_seconds)
 
@@ -408,11 +478,8 @@ class ContentIntelligenceAgent:
             except Exception as exc:
                 logger.warning(f"Falha ao gerar shorts para capitulo '{chapter.title}': {exc}")
 
-        # D19: critico de autocontencao sobre os candidatos finais (apos a ancoragem)
-        for short in all_shorts:
-            short.standalone_score, short.standalone_notes = self._check_standalone(
-                short, transcript, config
-            )
+        # D19: critico de autocontencao em lote sobre os candidatos finais
+        self._check_standalone_batch(all_shorts, transcript, config)
 
         # D25: excluir trechos marcados como OOC do universo de candidatos
         if ooc_ranges:

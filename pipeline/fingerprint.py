@@ -53,7 +53,6 @@ _SETTINGS_BY_STAGE: dict[str, list[str]] = {
         "shorts_min_spacing_seconds",
     ],
     "VIDEO_EDIT": [
-        "silence_threshold_db",
         "min_gap_seconds",
         "silence_pre_padding_ms",
         "silence_post_padding_ms",
@@ -85,6 +84,7 @@ def _files_by_stage(stage_name: str, config: Settings) -> dict[str, dict | None]
         if not config.whisper_initial_prompt.strip() and config.glossary_name:
             _maybe(glossaries / f"{config.glossary_name}.md", "glossary")
     elif stage_name == "TRANSCRIPT_CLEANING":
+        _maybe(prompts / "cleaning_llm.md", "prompt_cleaning_llm")
         if config.glossary_name:
             _maybe(glossaries / f"{config.glossary_name}.md", "glossary")
     elif stage_name == "CONTENT_INTELLIGENCE":

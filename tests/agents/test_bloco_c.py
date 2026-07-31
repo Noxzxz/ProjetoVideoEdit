@@ -204,8 +204,11 @@ def test_run_excludes_shorts_overlapping_ooc(monkeypatch, tmp_path):
     monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
     monkeypatch.setattr(
         agent,
-        "_check_standalone",
-        lambda short, transcript, config: (0.9, "ok"),
+        "_check_standalone_batch",
+        lambda shorts, transcript, config: [
+            setattr(s, "standalone_score", 0.9) or setattr(s, "standalone_notes", "ok")
+            for s in shorts
+        ],
     )
 
     cache_dir = tmp_path / "cache"

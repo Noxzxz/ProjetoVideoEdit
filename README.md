@@ -143,7 +143,7 @@ O pipeline é configurado via arquivo `.env` ou variáveis de ambiente (Pydantic
 ### Edição / Silêncio
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
-| `SILENCE_THRESHOLD_DB` | `-35.0` | Limiar de silêncio em dB |
+| `SILENCE_THRESHOLD_DB` | `-35.0` | (Não implementado — reservado para detecção de silêncio via FFmpeg `silencedetect`) |
 | `MIN_GAP_SECONDS` | `0.6` | Gap mínimo entre cortes |
 | `SILENCE_PRE_PADDING_MS` | `100` | ms de padding antes do silêncio |
 | `SILENCE_POST_PADDING_MS` | `150` | ms de padding depois do silêncio |
@@ -172,12 +172,12 @@ ProjetoVideoEdit/
 │   ├── subtitle_styling/
 │   ├── shorts_extractor/
 │   └── packaging/
-├── services/                  # FFmpeg, Whisper, LLM provider, análise de áudio, transcript import
+├── services/                  # FFmpeg, Whisper, LLM provider (retry/backoff), análise RMS, transcript import
 ├── pipeline/
-│   ├── runner.py              # Orquestrador com paralelismo
-│   └── fingerprint.py         # Fingerprint de config por etapa (invalidação de cache)
-├── shared/                    # Exceções, logging, preflight, SQLite
-├── utils/                     # Hash (por amostra), arquivo, tempo, slug, ancoragem, glossário
+│   ├── runner.py              # Orquestrador com paralelismo (ThreadPoolExecutor)
+│   └── fingerprint.py         # Fingerprint de config por etapa (invalidação seletiva de cache)
+├── shared/                    # Exceções, logging, preflight
+├── utils/                     # Hash (por amostra), arquivo (escrita atômica), tempo, slug, ancoragem, glossário
 ├── prompts/                   # Prompts LLM externos (.md)
 ├── glossaries/                # Vocabulário por linha de jogo + hashtags curadas (.md)
 ├── campanha/                  # Contexto de campanha por crônica (.md)
@@ -197,6 +197,6 @@ ProjetoVideoEdit/
 
 ## Documentação
 
-- `Registro_Decisoes_e_Bugs_Lessons_Learned.md` — *por que* cada decisão (D1-D30) e correção (B1-B16) existe; consulte antes de "otimizar" o código.
+- `Registro_Decisoes_e_Bugs_Lessons_Learned.md` — *por que* cada decisão (D1-D33) e correção (B1-B33) existe; consulte antes de "otimizar" o código.
 - `Referencia_Rapida_Contratos.md` — schemas e assinaturas atuais.
 - `RESUMO_PLANEJAMENTO.md` / `Epics_e_Backlog_Pipeline_IA.md` / `RELATORIO_IMPLEMENTACAO.md` — histórico de planejamento (snapshots).

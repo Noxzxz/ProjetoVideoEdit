@@ -9,6 +9,11 @@ st.title("AI Video Pipeline")
 st.markdown("Pipeline de pos-producao de video 100% local com IA.")
 st.markdown("---")
 
+st.warning(
+    "Dashboard em desenvolvimento. "
+    "Use a CLI para processar videos: `python main.py --video data/raw/seu_video.mp4`"
+)
+
 tab1, tab2, tab3 = st.tabs(["Upload", "Progresso", "Resultados"])
 
 with tab1:
@@ -20,12 +25,11 @@ with tab1:
     if uploaded:
         st.success(f"Video carregado: {uploaded.name}")
         if st.button("Iniciar Processamento"):
-            st.info("Processamento iniciado...")
+            st.warning("Processamento via dashboard ainda nao implementado. Use a CLI.")
 
 with tab2:
     st.header("Progresso")
     st.info("Nenhum processamento em andamento.")
-    st.progress(0)
 
 with tab3:
     st.header("Resultados")

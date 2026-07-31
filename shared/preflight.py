@@ -65,11 +65,19 @@ def run_preflight_checks(config: Settings | None = None) -> list[str]:
     try:
         import shutil
 
-        free = shutil.disk_usage(settings.data_dir).free
+        data_dir = Path(settings.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(data_dir).free
         if free < 5 * 1024 * 1024 * 1024:
-            errors.append("Espaco em disco insuficiente. Libere pelo menos 5GB.")
+            errors.append(
+                f"Espaco em disco insuficiente em {data_dir.absolute()}. "
+                "Libere pelo menos 5GB."
+            )
     except Exception:
-        pass
+        logger.warning(
+            f"Nao foi possivel verificar espaco em disco em {settings.data_dir}",
+            exc_info=True,
+        )
 
     if settings.whisper_device == "cuda":
         try:
@@ -81,7 +89,13 @@ def run_preflight_checks(config: Settings | None = None) -> list[str]:
             logger.warning("PyTorch nao instalado. Nao foi possivel verificar GPU.")
 
     prompts_dir = Path(settings.prompts_dir)
-    required_prompts = ["content_intelligence.md", "cleaning_llm.md", "shorts_prompt.md"]
+    required_prompts = [
+        "content_intelligence.md",
+        "content_consolidation.md",
+        "cleaning_llm.md",
+        "shorts_prompt.md",
+        "standalone_check_prompt.md",
+    ]
     missing = [p for p in required_prompts if not (prompts_dir / p).exists()]
     if missing:
         errors.append(f"Prompts obrigatorios ausentes: {missing}")

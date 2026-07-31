@@ -44,16 +44,20 @@ def _detect_pair(
         if pattern_end.search(seg_text):
             end_indices.append((i, seg))
 
+    end_cursor = 0  # proximo end disponivel (indice na lista de ends)
+
     for start_idx, start_seg in start_indices:
-        future_ends = [(ei, es) for ei, es in end_indices if ei > start_idx]
-        if not future_ends:
+        while end_cursor < len(end_indices) and end_indices[end_cursor][0] <= start_idx:
+            end_cursor += 1
+        if end_cursor >= len(end_indices):
             logger.warning(
                 f"Marcador '{start_word}' em {start_seg.start:.1f}s "
                 f"sem '{end_word}' correspondente. Ignorando."
             )
-            continue
+            break
 
-        end_idx, end_seg = future_ends[0]
+        end_idx, end_seg = end_indices[end_cursor]
+        end_cursor += 1  # consome o end para que próximo start use o seguinte
         pairs.append(
             MarkerPair(
                 start=start_seg.start,

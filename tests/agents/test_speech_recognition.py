@@ -10,7 +10,9 @@ def test_audio_not_found_raises_error():
         agent.run("test-video", "/inexistente/audio.wav")
 
 
-def test_returns_transcript_from_cache(tmp_path):
+def test_returns_transcript_from_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr("utils.hash_utils.settings.cache_dir", str(tmp_path))
+
     agent = SpeechRecognitionAgent()
     from utils.hash_utils import get_cache_dir, get_video_hash_from_id
 

@@ -44,12 +44,12 @@ class LLMProvider(ABC):
         for attempt in range(1, max_retries + 1):
             try:
                 resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-            except requests.ConnectionError as err:
+            except (requests.ConnectionError, requests.Timeout) as err:
                 last_error = err
                 if attempt == max_retries:
                     break
                 logger.warning(
-                    f"ConnectionError (tentativa {attempt}/{max_retries}). "
+                    f"{type(err).__name__} (tentativa {attempt}/{max_retries}). "
                     f"Retry em {base * attempt:.1f}s"
                 )
                 time.sleep(base * attempt)
@@ -61,11 +61,17 @@ class LLMProvider(ABC):
                 )
                 if attempt == max_retries:
                     break
+                retry_after = resp.headers.get("Retry-After")
+                wait = (
+                    float(retry_after)
+                    if retry_after is not None
+                    else base * attempt
+                )
                 logger.warning(
                     f"HTTP {resp.status_code} (tentativa {attempt}/{max_retries}). "
-                    f"Retry em {base * attempt:.1f}s"
+                    f"Retry em {wait:.1f}s"
                 )
-                time.sleep(base * attempt)
+                time.sleep(wait)
                 continue
 
             return resp
@@ -132,7 +138,11 @@ class GeminiProvider(LLMProvider):
                 "GEMINI_API_KEY nao configurada. Defina no .env ou exporte a variavel."
             )
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.gemini_model}:generateContent?key={api_key}"
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{cfg.gemini_model}:generateContent"
+        )
+        headers = {"x-goog-api-key": api_key}
 
         contents = []
         if system_prompt:
@@ -148,7 +158,7 @@ class GeminiProvider(LLMProvider):
         if json_mode:
             payload["generationConfig"]["response_mime_type"] = "application/json"
 
-        resp = self._post(url, payload=payload, timeout=timeout)
+        resp = self._post(url, payload=payload, headers=headers, timeout=timeout)
 
         if resp.status_code == 403:
             raise ExternalServiceError(

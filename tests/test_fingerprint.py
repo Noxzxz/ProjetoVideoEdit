@@ -33,12 +33,15 @@ def test_fingerprint_ignores_irrelevant_setting():
 def test_fingerprint_tracks_prompt_file(tmp_path, monkeypatch):
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "content_intelligence.md").write_text("v1", encoding="utf-8")
+    (prompts / "content_intelligence.md").write_text("versao 1 do prompt", encoding="utf-8")
+    (prompts / "content_consolidation.md").write_text("consolidacao", encoding="utf-8")
+    (prompts / "shorts_prompt.md").write_text("shorts", encoding="utf-8")
+    (prompts / "standalone_check_prompt.md").write_text("standalone", encoding="utf-8")
     config = Settings()
     config.prompts_dir = str(prompts)
     base = compute_stage_fingerprint("CONTENT_INTELLIGENCE", config)
 
-    (prompts / "content_intelligence.md").write_text("v2", encoding="utf-8")
+    (prompts / "content_intelligence.md").write_text("versao 2 do prompt LONGER", encoding="utf-8")
     changed = compute_stage_fingerprint("CONTENT_INTELLIGENCE", config)
     assert changed != base
 

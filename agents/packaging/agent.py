@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import zipfile
 from datetime import datetime
@@ -7,7 +8,7 @@ from pathlib import Path
 from config.settings import Settings
 from schemas.analytics import AnalyticsReport
 from schemas.state import PipelineState
-from utils.file_utils import ensure_dir, load_json
+from utils.file_utils import atomic_write_text, ensure_dir, load_json
 from utils.hash_utils import get_cache_dir
 from utils.slugify import generate_video_id
 
@@ -61,7 +62,7 @@ class PackagingAgent:
             if stage.error_message:
                 lines.append(f"  - Erro: {stage.error_message}")
 
-        (output_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
+        atomic_write_text(output_dir / "report.md", "\n".join(lines))
 
     def _build_analytics(
         self,
@@ -139,20 +140,22 @@ class PackagingAgent:
         # Build and save analytics
         analytics = self._build_analytics(state, output_dir, video_hash, config, cache_dir)
         analytics_path = output_dir / "analytics.json"
-        analytics_path.write_text(analytics.model_dump_json(indent=2), encoding="utf-8")
+        atomic_write_text(analytics_path, analytics.model_dump_json(indent=2))
 
         # Generate report
         self._generate_report(state, output_dir, video_hash)
 
-        # Create ZIP
-        zip_path = output_dir.parent / f"{state.video_path.stem}.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Create ZIP (atomico via tmp)
+        zip_dest = output_dir.parent / f"{state.video_path.stem}.zip"
+        tmp_zip = zip_dest.with_name(f"{zip_dest.name}.{os.getpid()}.tmp")
+        with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in output_dir.rglob("*"):
                 if f.is_file():
                     arcname = str(f.relative_to(output_dir.parent))
                     zf.write(str(f), arcname)
+        os.replace(str(tmp_zip), str(zip_dest))
 
-        logger.info(f"Pacote gerado: {zip_path}")
+        logger.info(f"Pacote gerado: {zip_dest}")
         return analytics
 
     def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:

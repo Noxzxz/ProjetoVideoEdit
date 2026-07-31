@@ -14,18 +14,29 @@ from utils.glossary_correction import build_initial_prompt_from_glossary
 logger = logging.getLogger(__name__)
 
 _model = None  # type: ignore
+_model_config: tuple | None = None
 
 
 def _load_model(config: Settings | None = None) -> WhisperModel:
-    global _model
+    global _model, _model_config
     cfg = config or settings
-    if _model is None:
-        compute_type = "int8" if cfg.whisper_device == "cpu" else "float16"
-        _model = WhisperModel(
-            cfg.whisper_model_size,
-            device=cfg.whisper_device,
-            compute_type=compute_type,
-        )
+    key = (
+        cfg.whisper_model_size,
+        cfg.whisper_device,
+        cfg.whisper_vad_filter,
+        cfg.whisper_vad_threshold,
+    )
+    if _model is not None and _model_config == key:
+        return _model
+    if _model is not None:
+        unload_whisper_model()
+    compute_type = "int8" if cfg.whisper_device == "cpu" else "float16"
+    _model = WhisperModel(
+        cfg.whisper_model_size,
+        device=cfg.whisper_device,
+        compute_type=compute_type,
+    )
+    _model_config = key
     return _model
 
 
@@ -76,10 +87,11 @@ def transcribe(
 
 
 def unload_whisper_model() -> None:
-    global _model
+    global _model, _model_config
     if _model is not None:
         del _model
         _model = None
+        _model_config = None
         try:
             import torch
 

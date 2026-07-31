@@ -4,7 +4,7 @@ from pathlib import Path
 from config.settings import Settings
 from schemas.subtitle import SubtitleResult
 from schemas.transcript import TranscriptCleaned, TranscriptSegment
-from utils.file_utils import ensure_dir, load_json, save_json
+from utils.file_utils import atomic_write_text, ensure_dir, load_json, save_json
 from utils.hash_utils import get_cache_dir
 from utils.time_utils import seconds_to_srt_timestamp, seconds_to_vtt_timestamp
 
@@ -18,7 +18,7 @@ def split_into_caption_chunks(
     """Agrupa palavras em chunks de no maximo max_words_per_line."""
     chunks: list[TranscriptSegment] = []
     current_words: list[str] = []
-    chunk_start = 0.0
+    chunk_start: float | None = None
     chunk_end = 0.0
     chunk_id = 0
 
@@ -28,6 +28,8 @@ def split_into_caption_chunks(
             continue
 
         for word in words:
+            if chunk_start is None:
+                chunk_start = seg.start
             current_words.append(word)
             chunk_end = seg.end
 
@@ -98,8 +100,8 @@ class SubtitleStylingAgent:
         srt_path = output_dir / "subtitles.srt"
         vtt_path = output_dir / "subtitles.vtt"
 
-        srt_path.write_text(to_srt(chunks), encoding="utf-8")
-        vtt_path.write_text(to_vtt(chunks), encoding="utf-8")
+        atomic_write_text(srt_path, to_srt(chunks))
+        atomic_write_text(vtt_path, to_vtt(chunks))
 
         logger.info(f"Legendas geradas em {output_dir}")
         return SubtitleResult(

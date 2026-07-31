@@ -25,7 +25,7 @@ def get_video_metadata(video_path: Path) -> VideoMetadata:
         "-show_streams",
         str(video_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise AudioExtractionError(f"ffprobe falhou: {result.stderr}")
 
@@ -68,7 +68,7 @@ def extract_audio(video_path: Path, output_path: Path) -> Path:
         "1",
         str(output_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise AudioExtractionError(f"FFmpeg falhou: {result.stderr}")
     logger.info(f"Audio extracted: {output_path}")
@@ -106,7 +106,7 @@ def apply_cut_list(
                 "copy",
                 str(seg_path),
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             if result.returncode != 0:
                 # Fallback reencode
                 cmd = [
@@ -124,7 +124,7 @@ def apply_cut_list(
                     "aac",
                     str(seg_path),
                 ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
                 if result.returncode != 0:
                     raise EditingError(f"Cut failed: {result.stderr}")
             segment_files.append(seg_path)
@@ -133,7 +133,8 @@ def apply_cut_list(
         list_file = temp_dir / "concat_list.txt"
         with open(list_file, "w") as f:
             for seg in segment_files:
-                f.write(f"file '{seg.resolve()}'\n")
+                safe_path = str(seg.resolve()).replace("\\", "/")
+                f.write(f"file '{safe_path}'\n")
 
         cmd = [
             "ffmpeg",
@@ -148,7 +149,7 @@ def apply_cut_list(
             "copy",
             str(output_path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             raise EditingError(f"Concatenation failed: {result.stderr}")
 
@@ -186,7 +187,7 @@ def extract_segment(
         "make_zero",
         str(output_path),
     ]
-    result = subprocess.run(cmd_copy, capture_output=True, text=True)
+    result = subprocess.run(cmd_copy, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         cmd_reenc = [
             "ffmpeg",
@@ -205,7 +206,7 @@ def extract_segment(
             config.video_preset,
             str(output_path),
         ]
-        result = subprocess.run(cmd_reenc, capture_output=True, text=True)
+        result = subprocess.run(cmd_reenc, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             raise EditingError(f"Falha ao extrair segmento: {result.stderr}")
     return output_path

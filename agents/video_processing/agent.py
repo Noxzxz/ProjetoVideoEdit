@@ -13,7 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class VideoProcessingAgent:
-    def run(self, video_path: str, video_hash: str | None = None) -> VideoIngestResult:
+    def run(
+        self,
+        video_path: str,
+        video_hash: str | None = None,
+        config: Settings | None = None,
+    ) -> VideoIngestResult:
+        cfg = config or Settings()
         path = Path(video_path)
         if not path.exists():
             raise VideoNotFoundError(f"Arquivo nao encontrado: {video_path}")
@@ -33,7 +39,7 @@ class VideoProcessingAgent:
         if not metadata.has_audio_track:
             raise AudioExtractionError("Video nao possui trilha de audio")
 
-        audio_path = Path("data/intermediate") / video_id / "audio.wav"
+        audio_path = Path(cfg.data_dir) / "intermediate" / video_id / "audio.wav"
         ensure_dir(audio_path.parent)
         extract_audio(path, audio_path)
 
@@ -49,4 +55,4 @@ class VideoProcessingAgent:
         return result
 
     def run_stage(self, video_path: Path, video_hash: str, config: Settings) -> None:
-        self.run(str(video_path), video_hash)
+        self.run(str(video_path), video_hash, config)

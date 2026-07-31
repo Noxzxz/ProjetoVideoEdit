@@ -1,6 +1,17 @@
+from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolve(path_str: str) -> str:
+    p = Path(path_str)
+    if p.is_absolute():
+        return str(p)
+    return str(_PROJECT_ROOT / p)
 
 
 class Settings(BaseSettings):
@@ -12,6 +23,15 @@ class Settings(BaseSettings):
     logs_dir: str = "logs"
     prompts_dir: str = "prompts"
     glossaries_dir: str = "glossaries"
+
+    @field_validator(
+        "data_dir", "outputs_dir", "cache_dir",
+        "logs_dir", "prompts_dir", "glossaries_dir",
+        mode="after",
+    )
+    @staticmethod
+    def _resolve_paths(v: str) -> str:
+        return _resolve(v)
 
     whisper_model_size: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
     whisper_device: Literal["cuda", "cpu"] = "cuda"
@@ -30,8 +50,6 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_model: str = "llama-3.1-8b-instant"
-
-    sqlite_path: str = "shared/db/analytics.db"
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
