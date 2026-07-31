@@ -120,6 +120,33 @@ class ContentIntelligenceAgent:
             logger.warning(f"Falha na consolidacao final: {exc}")
             return {}
 
+    def _check_standalone(
+        self, short: ShortCandidate, transcript: dict
+    ) -> tuple[float, str]:
+        """Critico de autocontencao (D19): verifica se o trecho cortado e compreensivel sozinho."""
+        prompt_path = Path(settings.prompts_dir) / "standalone_check_prompt.md"
+        if not prompt_path.exists():
+            logger.warning(f"Prompt de autocontencao nao encontrado: {prompt_path}")
+            return 0.5, ""
+
+        prompt = prompt_path.read_text(encoding="utf-8")
+        trecho_text = self._format_transcript_range(transcript, short.start, short.end)
+        user_prompt = (
+            f"Trecho do short:\n{trecho_text}\n\n"
+            f"Gancho: {short.gancho}\nPayoff: {short.payoff}"
+        )
+
+        try:
+            time.sleep(settings.llm_call_delay_seconds)
+            response = generate(system_prompt=prompt, user_prompt=user_prompt, json_mode=True)
+            data = json.loads(response)
+            score = float(data.get("standalone_score", 0.5))
+            notes = str(data.get("standalone_notes", ""))
+            return max(0.0, min(1.0, score)), notes
+        except Exception as exc:
+            logger.warning(f"Falha na verificacao de autocontencao: {exc}")
+            return 0.5, ""
+
     def run(
         self,
         transcript: dict,
@@ -267,7 +294,19 @@ class ContentIntelligenceAgent:
             except Exception as exc:
                 logger.warning(f"Falha ao gerar shorts para capitulo '{chapter.title}': {exc}")
 
-        all_shorts.sort(key=lambda s: s.score * 0.6 + s.hook_strength * 0.4, reverse=True)
+        # D19: critico de autocontencao sobre os candidatos finais (apos a ancoragem)
+        for short in all_shorts:
+            short.standalone_score, short.standalone_notes = self._check_standalone(
+                short, transcript
+            )
+
+        all_shorts = [
+            s for s in all_shorts if s.standalone_score >= config.shorts_min_standalone_score
+        ]
+        all_shorts.sort(
+            key=lambda s: s.score * 0.5 + s.hook_strength * 0.3 + s.standalone_score * 0.2,
+            reverse=True,
+        )
 
         result_data = {
             "video_id": transcript.get("video_id", ""),

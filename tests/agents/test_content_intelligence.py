@@ -229,3 +229,60 @@ def test_run_stage_passes_video_hash_to_anchoring(monkeypatch, tmp_path):
     assert content["shorts"][0]["start"] == 30.0
     assert content["shorts"][0]["end"] == 70.0
     assert content["seo"]["title"] == "Titulo"
+
+
+_SHORT_CANDIDATE = {
+    "gancho": "hoje vamos falar do principio",
+    "payoff": "e foi assim que ele caiu",
+    "emocao": "curiosidade",
+    "justificativa": "arco completo",
+}
+
+_TRANSCRIPT = {
+    "video_id": "v1",
+    "segments": [
+        {"id": 0, "start": 0, "end": 5, "text": "bem vindos ao canal"},
+        {"id": 1, "start": 30, "end": 40, "text": "hoje vamos falar do principio"},
+        {"id": 2, "start": 60, "end": 70, "text": "e foi assim que ele caiu"},
+    ],
+}
+
+
+def _setup_content_run(monkeypatch, agent, check_returns):
+    monkeypatch.setattr(agent, "_consolidate", lambda *a, **k: {})
+    monkeypatch.setattr(
+        "agents.content_intelligence.agent.settings.llm_call_delay_seconds", 0.0
+    )
+    monkeypatch.setattr(
+        "agents.content_intelligence.agent.load_transcript_segments",
+        lambda video_hash: [
+            {"id": 1, "start": 30, "end": 40, "text": "hoje vamos falar do principio"},
+            {"id": 2, "start": 60, "end": 70, "text": "e foi assim que ele caiu"},
+        ],
+    )
+    monkeypatch.setattr(agent, "_check_standalone", lambda short, transcript: check_returns)
+
+    def fake_generate(system_prompt, user_prompt, json_mode=False, **kwargs):
+        if "Shorts" in system_prompt:
+            return json.dumps({"shorts": [_SHORT_CANDIDATE]})
+        return _chunk_json_response()
+
+    monkeypatch.setattr("agents.content_intelligence.agent.generate", fake_generate)
+
+
+def test_run_populates_standalone_scores(monkeypatch):
+    """D19: critico de autocontencao preenche standalone_score/standalone_notes."""
+    agent = ContentIntelligenceAgent()
+    _setup_content_run(monkeypatch, agent, check_returns=(0.85, "Compreensivel sozinho"))
+    result = agent.run(_TRANSCRIPT, 100.0, Settings(), video_hash="abc123")
+    assert len(result.shorts) == 1
+    assert result.shorts[0].standalone_score == 0.85
+    assert result.shorts[0].standalone_notes == "Compreensivel sozinho"
+
+
+def test_run_discards_short_below_standalone_threshold(monkeypatch):
+    """D19: candidato que depende de contexto externo e descartado."""
+    agent = ContentIntelligenceAgent()
+    _setup_content_run(monkeypatch, agent, check_returns=(0.2, "Depende de contexto anterior"))
+    result = agent.run(_TRANSCRIPT, 100.0, Settings(), video_hash="abc123")
+    assert result.shorts == []

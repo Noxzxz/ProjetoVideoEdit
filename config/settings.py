@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     shorts_min_duration_seconds: int = 15
     shorts_target_count: int = 4
     shorts_min_spacing_seconds: float = 30.0
+    shorts_min_standalone_score: float = 0.5
 
     silence_threshold_db: float = -35.0
     min_gap_seconds: float = 0.6
