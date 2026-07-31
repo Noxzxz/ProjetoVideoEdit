@@ -10,6 +10,7 @@ from services.llm_provider import generate
 from shared.exceptions import ContentGenerationError
 from utils.file_utils import load_json, save_json
 from utils.hash_utils import get_cache_dir
+from utils.shorts_anchoring import anchor_short_candidate, load_transcript_segments
 
 logger = logging.getLogger(__name__)
 
@@ -51,55 +52,169 @@ class ContentIntelligenceAgent:
             lines.append(f"[{seg_start:.2f}s - {seg_end:.2f}s] {text}")
         return "\n".join(lines)
 
+    def _split_into_chunks(
+        self, transcript_data: dict, chunk_duration_minutes: int = 25
+    ) -> list[tuple[float, float, str]]:
+        segments = transcript_data.get("segments", [])
+        if not segments:
+            return []
+
+        duration_seconds = transcript_data.get("duration_seconds", 0)
+        if duration_seconds == 0:
+            max_end = max(seg.get("end", 0) for seg in segments)
+            duration_seconds = max_end
+
+        chunk_duration_seconds = chunk_duration_minutes * 60
+        chunks: list[tuple[float, float, str]] = []
+
+        for start_offset in range(0, int(duration_seconds), chunk_duration_seconds):
+            end_offset = min(start_offset + chunk_duration_seconds, duration_seconds)
+            chunk_text = self._format_transcript_range(
+                transcript_data, start_offset, end_offset
+            )
+            if chunk_text.strip():
+                chunks.append((start_offset, end_offset, chunk_text))
+
+        return chunks
+
     def _extract_seo_data(self, response: dict, video_id: str) -> dict:
         return {
             "seo": response.get("seo", {}),
-            "thumbnail": response.get("thumbnail", []),
+            "thumbnail_suggestions": response.get("thumbnail_suggestions", []),
             "summary": response.get("summary", {}),
         }
+
+    def _consolidate(
+        self,
+        video_duration_seconds: float,
+        chapter_candidates: list[Chapter],
+        thumbnail_ideas: list[str],
+        key_point_candidates: list[str],
+    ) -> dict:
+        """Chamada final de consolidacao (map-reduce): decide capitulos finais e SEO global."""
+        if not chapter_candidates:
+            return {}
+
+        prompt_path = Path(settings.prompts_dir) / "content_consolidation.md"
+        if not prompt_path.exists():
+            raise ContentGenerationError(f"Prompt de consolidacao nao encontrado: {prompt_path}")
+        prompt = prompt_path.read_text(encoding="utf-8")
+
+        candidates = {
+            "video_duration_seconds": video_duration_seconds,
+            "chapter_candidates": [c.model_dump() for c in chapter_candidates],
+            "thumbnail_ideas": thumbnail_ideas[:10],
+            "key_points_candidates": key_point_candidates[:20],
+        }
+        user_prompt = json.dumps(candidates, ensure_ascii=False, indent=2)
+
+        try:
+            time.sleep(settings.llm_call_delay_seconds)
+            response = generate(system_prompt=prompt, user_prompt=user_prompt, json_mode=True)
+            data = json.loads(response)
+            return {
+                "seo": data.get("seo", {}),
+                "summary": data.get("summary", {}),
+            }
+        except Exception as exc:
+            logger.warning(f"Falha na consolidacao final: {exc}")
+            return {}
 
     def run(
         self,
         transcript: dict,
         video_duration_seconds: float,
         config: Settings,
+        video_hash: str | None = None,
     ) -> ContentIntelligenceResult:
         prompt = self._load_prompt()
-        formatted = self._format_transcript(transcript)
+        chunks = self._split_into_chunks(transcript, chunk_duration_minutes=25)
 
-        user_prompt = (
-            f"Duracao do video: {video_duration_seconds:.1f}s\n\n"
-            f"Transcricao (com timestamps):\n{formatted}"
+        if not chunks:
+            formatted = self._format_transcript(transcript)
+            chunks = [(0, video_duration_seconds, formatted)]
+
+        all_chapters: list[Chapter] = []
+        all_thumbnails: list[str] = []
+        all_summaries: list[str] = []
+        per_chunk_seo: list[dict] = []
+
+        for idx, (chunk_start, chunk_end, chunk_text) in enumerate(chunks):
+            user_prompt = (
+                f"Duracao do video: {video_duration_seconds:.1f}s\n"
+                f"Trecho: {chunk_start:.1f}s ate {chunk_end:.1f}s\n\n"
+                f"Transcricao (com timestamps):\n{chunk_text}"
+            )
+
+            try:
+                if idx > 0:
+                    time.sleep(settings.llm_call_delay_seconds)
+                response = generate(
+                    system_prompt=prompt,
+                    user_prompt=user_prompt,
+                    json_mode=True,
+                )
+                data = json.loads(response)
+                base = self._extract_seo_data(data, transcript.get("video_id", ""))
+
+                chapters_data = base["seo"].get("chapters", [])
+                for ch in chapters_data:
+                    ch["timestamp_seconds"] += chunk_start
+                    all_chapters.append(Chapter(**ch))
+
+                per_chunk_seo.append(base["seo"])
+                all_thumbnails.extend(base.get("thumbnail_suggestions", []))
+                all_summaries.extend(base.get("summary", {}).get("key_points", []))
+
+            except Exception as exc:
+                logger.warning(f"Falha ao processar chunk {idx}: {exc}")
+
+        all_chapters.sort(key=lambda c: c.timestamp_seconds)
+
+        consolidated = self._consolidate(
+            video_duration_seconds, all_chapters, all_thumbnails, all_summaries
         )
 
-        try:
-            response = generate(
-                system_prompt=prompt,
-                user_prompt=user_prompt,
-                json_mode=True,
-            )
-        except Exception as exc:
-            raise ContentGenerationError(f"Falha ao gerar conteudo: {exc}") from exc
+        seo_data = consolidated.get("seo", {})
+        chapters_data = seo_data.get("chapters")
+        if chapters_data:
+            try:
+                final_chapters = [Chapter(**c) for c in chapters_data]
+                final_chapters.sort(key=lambda c: c.timestamp_seconds)
+            except Exception as exc:
+                logger.warning(f"Capitulos consolidados invalidos: {exc}")
+                final_chapters = all_chapters
+            title = seo_data.get("title", "")
+            description = seo_data.get("description", "")
+            hashtags = seo_data.get("hashtags", [])
+        else:
+            final_chapters = all_chapters
+            title = ""
+            description = ""
+            hashtags = []
+            for s in per_chunk_seo:
+                title = title or s.get("title", "")
+                description = description or s.get("description", "")
+                hashtags = hashtags or s.get("hashtags", [])
 
-        try:
-            data = json.loads(response)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise ContentGenerationError(f"Resposta invalida do LLM: {exc}") from exc
-
-        base = self._extract_seo_data(data, transcript.get("video_id", ""))
-
-        chapters_data = base["seo"].get("chapters", [])
-        chapters = [Chapter(**c) for c in chapters_data]
+        summary_data = consolidated.get("summary", {})
+        overview = summary_data.get("overview", "")
+        key_points = summary_data.get("key_points") or all_summaries
+        next_steps = summary_data.get("next_steps") or []
 
         all_shorts: list[ShortCandidate] = []
         shorts_prompt = self._load_shorts_prompt()
         target_count = config.shorts_target_count
 
-        for idx, chapter in enumerate(chapters):
+        transcript_segments = []
+        if video_hash:
+            transcript_segments = load_transcript_segments(video_hash)
+
+        for idx, chapter in enumerate(final_chapters):
             chap_start = chapter.timestamp_seconds
             chap_end = (
-                chapters[idx + 1].timestamp_seconds
-                if idx + 1 < len(chapters)
+                final_chapters[idx + 1].timestamp_seconds
+                if idx + 1 < len(final_chapters)
                 else video_duration_seconds
             )
 
@@ -110,7 +225,7 @@ class ContentIntelligenceAgent:
                 continue
 
             chap_prompt = shorts_prompt.replace(
-                "{target_count}", str(max(1, target_count // len(chapters)))
+                "{target_count}", str(max(1, target_count // len(final_chapters)))
             )
             chap_user = (
                 f"Trecho do video: {chap_start:.1f}s ate {chap_end:.1f}s\n"
@@ -120,18 +235,35 @@ class ContentIntelligenceAgent:
 
             try:
                 if idx > 0:
-                    time.sleep(3)
+                    time.sleep(settings.llm_call_delay_seconds)
                 chap_response = generate(
                     system_prompt=chap_prompt,
                     user_prompt=chap_user,
                     json_mode=True,
                 )
                 chap_data = json.loads(chap_response)
-                for sc in chap_data.get("shorts", []):
-                    sc["start"] = max(sc.get("start", chap_start), chap_start)
-                    sc["end"] = min(sc.get("end", chap_end), chap_end)
-                    sc.setdefault("hook_strength", 0.5)
-                    all_shorts.append(ShortCandidate(**sc))
+
+                for cand in chap_data.get("shorts", []):
+                    anchored = anchor_short_candidate(
+                        cand,
+                        transcript_segments,
+                        video_duration_seconds,
+                        min_duration=config.shorts_min_duration_seconds,
+                        max_duration=config.shorts_max_duration_seconds,
+                    )
+                    if anchored:
+                        all_shorts.append(ShortCandidate(
+                            start=anchored["start"],
+                            end=anchored["end"],
+                            reason=anchored.get("justificativa", ""),
+                            score=0.7,
+                            hook_strength=0.6,
+                            gancho=anchored.get("gancho", ""),
+                            payoff=anchored.get("payoff", ""),
+                            emocao=anchored.get("emocao", ""),
+                            standalone_score=0.5,
+                            standalone_notes="",
+                        ))
             except Exception as exc:
                 logger.warning(f"Falha ao gerar shorts para capitulo '{chapter.title}': {exc}")
 
@@ -139,10 +271,19 @@ class ContentIntelligenceAgent:
 
         result_data = {
             "video_id": transcript.get("video_id", ""),
-            "seo": base["seo"],
+            "seo": {
+                "title": title,
+                "description": description,
+                "hashtags": hashtags,
+                "chapters": [c.model_dump() for c in final_chapters],
+            },
             "shorts": [s.model_dump() for s in all_shorts[:target_count]],
-            "thumbnail": base["thumbnail"],
-            "summary": base["summary"],
+            "thumbnail_suggestions": all_thumbnails[:5],
+            "summary": {
+                "overview": overview,
+                "key_points": key_points[:10],
+                "next_steps": next_steps,
+            },
         }
 
         return ContentIntelligenceResult(**result_data)
@@ -156,5 +297,5 @@ class ContentIntelligenceAgent:
         if not metadata or not cleaned:
             raise FileNotFoundError("Dados necessarios nao encontrados no cache")
         video_duration = metadata["metadata"]["duration_seconds"]
-        result = self.run(cleaned, video_duration, config)
+        result = self.run(cleaned, video_duration, config, video_hash=video_hash)
         save_json(cache_dir / "content.json", result.model_dump())

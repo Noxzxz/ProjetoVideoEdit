@@ -10,7 +10,6 @@ from schemas.content import (
     SeoContent,
     ShortCandidate,
     SummaryContent,
-    ThumbnailPromptItem,
 )
 from schemas.state import PipelineState, StageResult
 from schemas.transcript import TranscriptCleaned, TranscriptRaw, TranscriptSegment
@@ -91,13 +90,7 @@ def sample_content_result() -> ContentIntelligenceResult:
             ShortCandidate(start=10.0, end=25.0, reason="destaque inicial", score=0.9),
             ShortCandidate(start=50.0, end=65.0, reason="conclusão", score=0.8),
         ],
-        thumbnail=[
-            ThumbnailPromptItem(
-                prompt_pt="Frame inicial com título",
-                prompt_en="Opening frame with title",
-                mood="profissional",
-            ),
-        ],
+        thumbnail_suggestions=["Destaque a frase X", "Momento de clímax no segundo 45"],
         summary=SummaryContent(
             overview="Visão geral do vídeo",
             key_points=["Ponto 1", "Ponto 2"],

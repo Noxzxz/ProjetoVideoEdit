@@ -29,7 +29,7 @@ def test_short_clamping_and_discard():
                 start=20.0, end=100.0, reason="test", score=0.6
             ),  # duration 80s > max 60s -> clamped
         ],
-        thumbnail=[],
+        thumbnail_suggestions=[],
         summary=SummaryContent(overview="", key_points=[], next_steps=[]),
     )
     # We need a video duration; assume 60 seconds for test
@@ -57,7 +57,7 @@ def test_chapter_order_and_bounds():
         video_id="test",
         seo=SeoContent(title="", description="", hashtags=[], chapters=[]),
         shorts=[],
-        thumbnail=[],
+        thumbnail_suggestions=[],
         summary=SummaryContent(overview="", key_points=[], next_steps=[]),
     )
     seo = SeoContent(
@@ -91,7 +91,7 @@ def test_no_change_when_valid():
             ShortCandidate(start=10.0, end=25.0, reason="ok", score=0.9),
             ShortCandidate(start=55.0, end=75.0, reason="ok", score=0.8),
         ],
-        thumbnail=[],
+        thumbnail_suggestions=[],
         summary=SummaryContent(overview="", key_points=[], next_steps=[]),
     )
     seo = SeoContent(

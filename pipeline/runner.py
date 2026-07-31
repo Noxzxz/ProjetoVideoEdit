@@ -26,7 +26,6 @@ class PipelineStage(Enum):
     TIMELINE_VALIDATION = auto()
     VIDEO_EDIT = auto()
     SUBTITLE_STYLING = auto()
-    THUMBNAIL_FRAMES = auto()
     SHORTS_EXTRACTION = auto()
     PACKAGING = auto()
 
@@ -38,7 +37,6 @@ class PipelineStage(Enum):
 PARALLEL_GROUP = frozenset(
     {
         PipelineStage.SUBTITLE_STYLING,
-        PipelineStage.THUMBNAIL_FRAMES,
         PipelineStage.SHORTS_EXTRACTION,
     }
 )

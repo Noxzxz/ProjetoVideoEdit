@@ -10,7 +10,7 @@ def test_empty_shorts_returns_empty_list(tmp_path):
         video_id="test",
         seo=SeoContent(title="T", description="D", hashtags=[], chapters=[]),
         shorts=[],
-        thumbnail=[],
+        thumbnail_suggestions=[],
         summary=SummaryContent(overview="", key_points=[], next_steps=[]),
     )
     config = type("Settings", (), {})()

@@ -122,9 +122,8 @@ def test_skip_done_stages(runner):
 
 def test_parallel_group_definition():
     assert PipelineStage.SUBTITLE_STYLING in PARALLEL_GROUP
-    assert PipelineStage.THUMBNAIL_FRAMES in PARALLEL_GROUP
     assert PipelineStage.SHORTS_EXTRACTION in PARALLEL_GROUP
-    assert len(PARALLEL_GROUP) == 3
+    assert len(PARALLEL_GROUP) == 2
 
 
 def test_ordered_stages():

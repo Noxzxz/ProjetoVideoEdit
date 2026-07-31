@@ -48,7 +48,6 @@ def main() -> int:
         from agents.shorts_extractor.agent import ShortsExtractorAgent
         from agents.speech_recognition.agent import SpeechRecognitionAgent
         from agents.subtitle_styling.agent import SubtitleStylingAgent
-        from agents.thumbnail_frames.agent import ThumbnailFramesAgent
         from agents.timeline_validator.agent import TimelineValidatorAgent
         from agents.transcript_cleaner.agent import TranscriptCleanerAgent
         from agents.video_edit.agent import VideoEditAgent
@@ -65,7 +64,6 @@ def main() -> int:
     runner.register(PipelineStage.TIMELINE_VALIDATION, TimelineValidatorAgent().run_stage)
     runner.register(PipelineStage.VIDEO_EDIT, VideoEditAgent().run_stage)
     runner.register(PipelineStage.SUBTITLE_STYLING, SubtitleStylingAgent().run_stage)
-    runner.register(PipelineStage.THUMBNAIL_FRAMES, ThumbnailFramesAgent().run_stage)
     runner.register(PipelineStage.SHORTS_EXTRACTION, ShortsExtractorAgent().run_stage)
     runner.register(PipelineStage.PACKAGING, PackagingAgent().run_stage)
 

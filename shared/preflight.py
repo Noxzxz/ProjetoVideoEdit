@@ -81,7 +81,7 @@ def run_preflight_checks() -> list[str]:
             logger.warning("PyTorch nao instalado. Nao foi possivel verificar GPU.")
 
     prompts_dir = Path(settings.prompts_dir)
-    required_prompts = ["content_intelligence.md", "cleaning_llm.md", "thumbnail_prompt.md"]
+    required_prompts = ["content_intelligence.md", "cleaning_llm.md", "shorts_prompt.md"]
     missing = [p for p in required_prompts if not (prompts_dir / p).exists()]
     if missing:
         errors.append(f"Prompts obrigatorios ausentes: {missing}")

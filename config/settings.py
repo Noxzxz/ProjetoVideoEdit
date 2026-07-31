@@ -31,6 +31,8 @@ class Settings(BaseSettings):
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
+    llm_call_delay_seconds: float = 3.0
+
     shorts_max_duration_seconds: int = 60
     shorts_min_duration_seconds: int = 15
     shorts_target_count: int = 4

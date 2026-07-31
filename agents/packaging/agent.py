@@ -99,14 +99,6 @@ class PackagingAgent:
             for f in shorts_dir.glob("*.mp4"):
                 self._copy_if_exists(f, shorts_out / f.name)
 
-        # Copy thumbnails
-        thumbs_dir = cache_dir / "thumbnails"
-        if thumbs_dir.exists():
-            thumbs_out = output_dir / "thumbnails"
-            thumbs_out.mkdir(parents=True, exist_ok=True)
-            for f in thumbs_dir.glob("*.jpg"):
-                self._copy_if_exists(f, thumbs_out / f.name)
-
         # Build and save analytics
         analytics = self._build_analytics(state, output_dir, video_hash)
         analytics_path = output_dir / "analytics.json"

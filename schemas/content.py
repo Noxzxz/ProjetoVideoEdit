@@ -12,15 +12,13 @@ class ShortCandidate(BaseModel):
     start: float
     end: float
     reason: str
-    score: float = Field(ge=0, le=1)
+    score: float = Field(default=0.5, ge=0, le=1)
     hook_strength: float = Field(default=0.5, ge=0, le=1)
-
-
-class ThumbnailPromptItem(BaseModel):
-    model_config = ConfigDict(strict=True)
-    prompt_pt: str
-    prompt_en: str
-    mood: str
+    gancho: str = ""
+    payoff: str = ""
+    emocao: str = ""
+    standalone_score: float = Field(default=0.5, ge=0, le=1)
+    standalone_notes: str = ""
 
 
 class SeoContent(BaseModel):
@@ -43,5 +41,5 @@ class ContentIntelligenceResult(BaseModel):
     video_id: str
     seo: SeoContent
     shorts: list[ShortCandidate]
-    thumbnail: list[ThumbnailPromptItem]
+    thumbnail_suggestions: list[str] = Field(default_factory=list)
     summary: SummaryContent

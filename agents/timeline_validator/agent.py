@@ -135,7 +135,7 @@ class TimelineValidatorAgent:
                 chapters=valid_chapters,
             ),
             shorts=valid_shorts,
-            thumbnail=content.thumbnail,
+            thumbnail_suggestions=content.thumbnail_suggestions,
             summary=content.summary,
         )
 
