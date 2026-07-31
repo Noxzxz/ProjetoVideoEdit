@@ -9,11 +9,13 @@ class Settings(BaseSettings):
     cache_dir: str = "cache"
     logs_dir: str = "logs"
     prompts_dir: str = "prompts"
+    glossaries_dir: str = "glossaries"
 
     whisper_model_size: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
     whisper_device: Literal["cuda", "cpu"] = "cuda"
     whisper_vad_filter: bool = True
     whisper_vad_threshold: float = 0.5
+    whisper_initial_prompt: str = ""
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
@@ -46,6 +48,15 @@ class Settings(BaseSettings):
 
     marker_cut_word: str = "corte"
     marker_resume_word: str = "inicio"
+
+    ooc_pause_word: str = "pausa"
+    ooc_resume_word: str = "retomando"
+
+    glossary_name: str = ""
+    campaign_context_file: str = ""
+    hashtags_file: str = ""
+
+    content_type: Literal["sessao", "mecanica", "lore", "podcast"] = "sessao"
 
     video_codec: str = "libx264"
     audio_codec: str = "aac"

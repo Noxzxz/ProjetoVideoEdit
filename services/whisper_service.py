@@ -9,6 +9,7 @@ except ImportError:
 from config.settings import settings
 from schemas.transcript import TranscriptRaw, TranscriptSegment
 from shared.exceptions import TranscriptionError
+from utils.glossary_correction import build_initial_prompt_from_glossary
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,14 @@ def transcribe(audio_path: Path, video_id: str) -> TranscriptRaw:
 
     try:
         model = _load_model()
+        initial_prompt = settings.whisper_initial_prompt
+        if not initial_prompt:
+            initial_prompt = build_initial_prompt_from_glossary(settings.glossary_name)
         segments_iter, info = model.transcribe(
             str(audio_path),
             vad_filter=settings.whisper_vad_filter,
             vad_parameters={"threshold": settings.whisper_vad_threshold},
+            initial_prompt=initial_prompt or None,
         )
 
         segments: list[TranscriptSegment] = []

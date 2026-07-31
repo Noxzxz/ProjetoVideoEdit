@@ -6,6 +6,7 @@ from pathlib import Path
 from config.settings import Settings, settings
 from schemas.content import Chapter, ContentIntelligenceResult, ShortCandidate
 from schemas.state import PipelineState
+from services.audio_analysis_service import find_energy_peaks
 from services.llm_provider import generate
 from shared.exceptions import ContentGenerationError
 from utils.file_utils import load_json, save_json
@@ -90,6 +91,8 @@ class ContentIntelligenceAgent:
         chapter_candidates: list[Chapter],
         thumbnail_ideas: list[str],
         key_point_candidates: list[str],
+        campaign_context: str = "",
+        allowed_hashtags: list[str] | None = None,
     ) -> dict:
         """Chamada final de consolidacao (map-reduce): decide capitulos finais e SEO global."""
         if not chapter_candidates:
@@ -106,6 +109,10 @@ class ContentIntelligenceAgent:
             "thumbnail_ideas": thumbnail_ideas[:10],
             "key_points_candidates": key_point_candidates[:20],
         }
+        if campaign_context:
+            candidates["campaign_context"] = campaign_context
+        if allowed_hashtags:
+            candidates["allowed_hashtags"] = allowed_hashtags
         user_prompt = json.dumps(candidates, ensure_ascii=False, indent=2)
 
         try:
@@ -147,12 +154,58 @@ class ContentIntelligenceAgent:
             logger.warning(f"Falha na verificacao de autocontencao: {exc}")
             return 0.5, ""
 
+    @staticmethod
+    def _load_ooc_ranges(video_hash: str) -> list[tuple[float, float]]:
+        """Carrega intervalos marcados como OOC (D25) do markers.json no cache."""
+        if not video_hash:
+            return []
+        markers = load_json(get_cache_dir(video_hash) / "markers.json") or []
+        return [
+            (m["start"], m["end"])
+            for m in markers
+            if m.get("kind") == "ooc" and m.get("end", 0) > m.get("start", 0)
+        ]
+
+    @staticmethod
+    def _load_campaign_context(config: Settings) -> str:
+        """Carrega o contexto de campanha persistente (D23), se configurado."""
+        if not config.campaign_context_file:
+            return ""
+        cpath = Path(config.campaign_context_file)
+        if not cpath.exists():
+            logger.warning(f"Contexto de campanha nao encontrado: {cpath}")
+            return ""
+        return cpath.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _load_hashtags(config: Settings) -> list[str]:
+        """Carrega vocabulario controlado de hashtags (D24), se configurado."""
+        if not config.hashtags_file:
+            return []
+        hpath = Path(config.hashtags_file)
+        if not hpath.exists():
+            hpath = Path(settings.glossaries_dir) / config.hashtags_file
+        if not hpath.exists():
+            logger.warning(f"Lista de hashtags nao encontrada: {config.hashtags_file}")
+            return []
+        tags: list[str] = []
+        for line in hpath.read_text(encoding="utf-8").splitlines():
+            raw = line.strip()
+            if not raw or raw.startswith("#"):
+                continue
+            tag = raw.lstrip("#").strip()
+            if not tag:
+                continue
+            tags.append(tag if tag.startswith("#") else f"#{tag}")
+        return tags
+
     def run(
         self,
         transcript: dict,
         video_duration_seconds: float,
         config: Settings,
         video_hash: str | None = None,
+        audio_path: str | None = None,
     ) -> ContentIntelligenceResult:
         prompt = self._load_prompt()
         chunks = self._split_into_chunks(transcript, chunk_duration_minutes=25)
@@ -199,7 +252,12 @@ class ContentIntelligenceAgent:
         all_chapters.sort(key=lambda c: c.timestamp_seconds)
 
         consolidated = self._consolidate(
-            video_duration_seconds, all_chapters, all_thumbnails, all_summaries
+            video_duration_seconds,
+            all_chapters,
+            all_thumbnails,
+            all_summaries,
+            campaign_context=self._load_campaign_context(config),
+            allowed_hashtags=self._load_hashtags(config),
         )
 
         seo_data = consolidated.get("seo", {})
@@ -234,8 +292,14 @@ class ContentIntelligenceAgent:
         target_count = config.shorts_target_count
 
         transcript_segments = []
+        ooc_ranges: list[tuple[float, float]] = []
         if video_hash:
             transcript_segments = load_transcript_segments(video_hash)
+            ooc_ranges = self._load_ooc_ranges(video_hash)
+
+        audio_peaks: list[tuple[float, float]] = []
+        if audio_path:
+            audio_peaks = find_energy_peaks(audio_path)
 
         for idx, chapter in enumerate(final_chapters):
             chap_start = chapter.timestamp_seconds
@@ -256,9 +320,15 @@ class ContentIntelligenceAgent:
             )
             chap_user = (
                 f"Trecho do video: {chap_start:.1f}s ate {chap_end:.1f}s\n"
-                f"Titulo do capitulo: {chapter.title}\n\n"
+                f"Titulo do capitulo: {chapter.title}\n"
+                f"Tipo de conteudo: {config.content_type}\n\n"
                 f"Transcricao do trecho:\n{chap_transcript}"
             )
+            chap_peaks = [
+                (s, e) for s, e in audio_peaks if s < chap_end and e > chap_start
+            ]
+            if chap_peaks:
+                chap_user += f"\n\nJanelas de alta energia de audio (climax): {chap_peaks}"
 
             try:
                 if idx > 0:
@@ -300,6 +370,17 @@ class ContentIntelligenceAgent:
                 short, transcript
             )
 
+        # D25: excluir trechos marcados como OOC do universo de candidatos
+        if ooc_ranges:
+            all_shorts = [
+                s
+                for s in all_shorts
+                if not any(
+                    s.start < ooc_end and s.end > ooc_start
+                    for ooc_start, ooc_end in ooc_ranges
+                )
+            ]
+
         all_shorts = [
             s for s in all_shorts if s.standalone_score >= config.shorts_min_standalone_score
         ]
@@ -336,5 +417,8 @@ class ContentIntelligenceAgent:
         if not metadata or not cleaned:
             raise FileNotFoundError("Dados necessarios nao encontrados no cache")
         video_duration = metadata["metadata"]["duration_seconds"]
-        result = self.run(cleaned, video_duration, config, video_hash=video_hash)
+        audio_path = metadata.get("audio_path")
+        result = self.run(
+            cleaned, video_duration, config, video_hash=video_hash, audio_path=audio_path
+        )
         save_json(cache_dir / "content.json", result.model_dump())

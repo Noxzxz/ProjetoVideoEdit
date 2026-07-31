@@ -10,10 +10,16 @@ REGRAS ABSOLUTAS:
 - NUNCA sugira timestamps fora da duracao real do video.
 - O titulo deve ter no maximo 100 caracteres.
 - A descricao deve ser informativa e conter quebras de paragrafo.
-- Hashtags devem ser relevantes e NAO incluir o caractere # no JSON.
 - Consolide os capitulos candidatos: remova duplicatas e sobreposicoes, ajuste titulos se necessario,
   e garanta ordem crescente cobrindo do inicio ao fim do video.
 - O resumo deve conter: visao geral, 3 a 8 pontos principais, e proximos passos (se aplicavel).
+
+CONTEXTO DE CAMPANHA (quando fornecido):
+- Use os nomes de personagens/faccoes do contexto para grafias consistentes e titulos cientes de continuidade.
+
+HASHTAGS CONTROLADAS (quando fornecido):
+- Escolha hashtags APENAS da lista `allowed_hashtags`, complementando com 1-2 tags livres
+  especificas do episodio quando fizer sentido. NAO inclua o caractere # no JSON.
 
 FORMATO DE RESPOSTA (JSON):
 {

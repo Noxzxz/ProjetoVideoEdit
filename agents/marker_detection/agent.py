@@ -19,58 +19,82 @@ def _strip_accents(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
-def detect_markers(
+def _detect_pair(
     transcript: TranscriptRaw,
-    cut_word: str,
-    resume_word: str,
+    start_word: str,
+    end_word: str,
+    kind: str,
 ) -> list[MarkerPair]:
     pairs: list[MarkerPair] = []
-    cut_indices: list[int] = []
-    resume_indices: list[int] = []
+    start_indices: list[tuple[int, object]] = []
+    end_indices: list[tuple[int, object]] = []
 
-    cut_stripped = _strip_accents(cut_word)
-    pattern = re.compile(rf"\b{re.escape(cut_stripped)}\b", re.IGNORECASE)
+    start_stripped = _strip_accents(start_word)
+    pattern = re.compile(rf"\b{re.escape(start_stripped)}\b", re.IGNORECASE)
 
     for i, seg in enumerate(transcript.segments):
         seg_text = _strip_accents(seg.text)
         if pattern.search(seg_text):
-            cut_indices.append((i, seg))
+            start_indices.append((i, seg))
 
-    resume_stripped = _strip_accents(resume_word)
-    pattern_resume = re.compile(rf"\b{re.escape(resume_stripped)}\b", re.IGNORECASE)
+    end_stripped = _strip_accents(end_word)
+    pattern_end = re.compile(rf"\b{re.escape(end_stripped)}\b", re.IGNORECASE)
 
     for i, seg in enumerate(transcript.segments):
         seg_text = _strip_accents(seg.text)
-        if pattern_resume.search(seg_text):
-            resume_indices.append((i, seg))
+        if pattern_end.search(seg_text):
+            end_indices.append((i, seg))
 
-    for cut_idx, cut_seg in cut_indices:
-        future_resumes = [(ri, rs) for ri, rs in resume_indices if ri > cut_idx]
-        if not future_resumes:
+    for start_idx, start_seg in start_indices:
+        future_ends = [(ei, es) for ei, es in end_indices if ei > start_idx]
+        if not future_ends:
             logger.warning(
-                f"Marcador 'corte' em {cut_seg.start:.1f}s sem 'inicio' correspondente. Ignorando."
+                f"Marcador '{start_word}' em {start_seg.start:.1f}s "
+                f"sem '{end_word}' correspondente. Ignorando."
             )
             continue
 
-        resume_idx, resume_seg = future_resumes[0]
+        end_idx, end_seg = future_ends[0]
         pairs.append(
             MarkerPair(
-                start=cut_seg.start,
-                end=resume_seg.end,
-                cut_word=cut_word,
-                resume_word=resume_word,
+                start=start_seg.start,
+                end=end_seg.end,
+                cut_word=start_word,
+                resume_word=end_word,
+                kind=kind,
             )
         )
         logger.info(
-            f"Marcador: corte em {cut_seg.start:.1f}s -> retorno em {resume_seg.end:.1f}s"
+            f"Marcador [{kind}]: {start_word} em {start_seg.start:.1f}s "
+            f"-> retorno em {end_seg.end:.1f}s"
         )
 
     return pairs
 
 
+def detect_markers(
+    transcript: TranscriptRaw,
+    cut_word: str,
+    resume_word: str,
+    ooc_pause_word: str | None = None,
+    ooc_resume_word: str | None = None,
+) -> list[MarkerPair]:
+    """Detecta pares de marcadores de voz: erro de fala (corte) e OOC (D25)."""
+    pairs = _detect_pair(transcript, cut_word, resume_word, "erro_fala")
+    if ooc_pause_word and ooc_resume_word:
+        pairs += _detect_pair(transcript, ooc_pause_word, ooc_resume_word, "ooc")
+    return pairs
+
+
 class MarkerDetectionAgent:
     def run(self, transcript: TranscriptRaw, config: Settings) -> list[MarkerPair]:
-        return detect_markers(transcript, config.marker_cut_word, config.marker_resume_word)
+        return detect_markers(
+            transcript,
+            config.marker_cut_word,
+            config.marker_resume_word,
+            ooc_pause_word=config.ooc_pause_word,
+            ooc_resume_word=config.ooc_resume_word,
+        )
 
     def run_stage(
         self, video_path: Path, video_hash: str, config: Settings, state: PipelineState

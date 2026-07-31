@@ -9,6 +9,7 @@ from schemas.transcript import TranscriptCleaned, TranscriptRaw, TranscriptSegme
 from services.llm_provider import generate
 from shared.exceptions import CleaningError
 from utils.file_utils import load_json, save_json
+from utils.glossary_correction import apply_glossary_to_segments, load_glossary
 from utils.hash_utils import get_cache_dir
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,17 @@ def apply_regex_cleaning(text: str) -> str:
 
 class TranscriptCleanerAgent:
     def run(self, transcript: TranscriptRaw) -> TranscriptCleaned:
-        """Limpa transcrição: regex (listas fechadas) + LLM em lote (25 segmentos/chamada)."""
+        """Limpa transcrição: glossário (D20) + regex (listas fechadas) + LLM em lote."""
+
+        # 0. Correcao deterministica de vocabulario de sistema (D20) - entre
+        #    SPEECH_RECOGNITION e TRANSCRIPT_CLEANING, antes de qualquer limpeza por LLM
+        glossary = load_glossary(settings.glossary_name)
+        if glossary:
+            transcript = TranscriptRaw(
+                video_id=transcript.video_id,
+                language=transcript.language,
+                segments=apply_glossary_to_segments(transcript.segments, glossary),
+            )
 
         # 1. Regex cleaning
         cleaned_texts = [apply_regex_cleaning(s.text) for s in transcript.segments]
