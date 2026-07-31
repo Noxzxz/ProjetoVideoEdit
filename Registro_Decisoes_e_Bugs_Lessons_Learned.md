@@ -79,6 +79,95 @@ Antes de alterar qualquer um dos módulos citados abaixo, verifique se a mudanç
 
 ---
 
+## 1b. Sessão de Planejamento — Nicho World of Darkness (D16-D26)
+
+> Origem: `Decisoes_Validadas_Sessao_Planejamento_WoD.md`. As entradas D16-D25 foram **validadas e implementadas** (commits `967791c`, `2b7eae4`, `3582b0c`). D26 é **proposta em aberto** (não fechada). A numeração continua de D15 (ver resumo no `RESUMO_PLANEJAMENTO.md`); D10-D15 permanecem lá resumidos.
+> **Contexto de negócio:** o pipeline é usado para pré-edição de um canal de nicho de **World of Darkness** (sessões de RPG de mesa, mecânica, lore, podcast). Vídeos gravados *audio-first* — a imagem é adicionada em pós-produção. Por isso o vídeo é tratado como **inexistente ou irrelevante** no momento do processamento.
+
+### D16 — Remoção completa da extração de thumbnail via OpenCV (sem substituto na V1)
+
+- **Contexto:** `ThumbnailFramesAgent` extraía frames candidatos via variância de Laplaciano. No nicho WoD (mesa fixa/tela preta) 13min22s de processamento para frames que nunca são "a melhor imagem" — não existe frame melhor que outro em conteúdo estático.
+- **Decisão:** Remover **inteiramente** a etapa de thumbnail — sem extração por frame, sem fallback por template (descartado explicitamente pelo usuário).
+- **Por quê:** Libera orçamento de tempo para o Content Intelligence (D17). Decisão específica ao formato *audio-first*, não limitação técnica.
+- **Como não regredir:** Não reintroduzir extração por frame "de brinde" sem confirmar que o canal passou a gravar conteúdo visual variável.
+- **Implementado:** agente/serviço/prompt/`opencv-python`/enum/testes removidos; `PARALLEL_GROUP` agora tem 2 membros (`SUBTITLE_STYLING`, `SHORTS_EXTRACTION`); `ContentIntelligenceResult.thumbnail_suggestions` virou sugestão textual (sem processamento de vídeo).
+
+### D17 — Cobertura total do vídeo via chunking (map-reduce), substituindo truncamento
+
+- **Contexto:** `_format_transcript(transcript, max_segments=400)` trunca os primeiros 400 segmentos — em sessões de 2h45min+ cobre ~15min, concentrando capítulos e shorts no começo.
+- **Decisão:** Dividir a transcrição em chunks de ~20-30min. Uma passada de candidatos por chunk e **uma chamada final de consolidação** (recebe só os candidatos, não a transcrição inteira) que decide capítulos finais + SEO global.
+- **Por quê:** Cobre o vídeo inteiro sem estourar a janela de contexto do modelo local (Qwen 3B/Gemma 2B).
+- **Como não regredir:** Nunca voltar a um `max_segments` fixo que trunca; qualquer "resumir tudo em 1 chamada" deve usar map-reduce. Trade-off explícito: mais chamadas LLM (rate limit em free tier) — mitigado por `LLM_CALL_DELAY_SECONDS` e Ollama local (D26).
+- **Implementado:** `_split_into_chunks` + consolidação em `prompts/content_consolidation.md` com fallback para o melhor SEO por chunk (nunca vazio).
+
+### D18 — Curadoria de shorts em dois passos: identificação narrativa + ancoragem determinística
+
+- **Contexto:** Shorts "sem nexo" — cortes no meio de frase, escolhidos por tópico em vez de arco completo.
+- **Decisão:** Dois passos: (1) **Identificação (LLM)** por capítulo com `momento`/`gancho`/`payoff`/`emocao` (gancho/payoff devem ser texto **literal** da transcrição); (2) **Ancoragem (determinística, sem LLM)** por similaridade do gancho/payoff contra segmentos cronometrados. Candidatos sem match são descartados (anti-alucinação).
+- **Por quê:** Replica o padrão D2 (determinístico resolve o volume, LLM só julga). Auto-valida alucinação sem chamada extra de verificação.
+- **Como não regredir:** Nunca pedir timestamp direto do LLM para short; ancoragem texto-contra-segmento é obrigatória para qualquer corte derivado de julgamento de LLM.
+- **Implementado:** `utils/shorts_anchoring.py` + `prompts/shorts_prompt.md` reescrito em 2 passos. **Bug crítico corrigido na implementação:** `run_stage` não passava `video_hash`, anulando a ancoragem (shorts sempre vazios).
+
+### D19 — Crítico de autocontenção (self-containment check) para candidatos finais de short
+
+- **Contexto:** Mesmo com arco completo, um trecho pode depender de contexto dito minutos antes (ex: NPC apresentado há 40min).
+- **Decisão:** Chamada LLM barata (recebe só o trecho já cortado) que avalia se é compreensível sozinho e aponta o que falta. Roda **depois** da ancoragem (D18), sobre os poucos candidatos finais.
+- **Por quê:** Mesmo padrão do `TimelineValidatorAgent` (D3) — separar geração de validação, agora sobre qualidade narrativa.
+- **Como não regredir:** Este passo nunca roda sobre todos os candidatos brutos — só sobre finais, para não multiplicar custo.
+- **Implementado:** `prompts/standalone_check_prompt.md` + `_check_standalone` + filtro `SHORTS_MIN_STANDALONE_SCORE` (default 0.5) + re-ranking ponderado.
+
+### D20 — Hotwords/glossário de vocabulário de sistemas WoD
+
+- **Contexto:** Termos de sistema (Camarilla, Frenzy, Auspex...) não são vocabulário comum em PT-BR; Whisper transcreve foneticamente errado e o LLM pode "corrigir" pior.
+- **Decisão:** Duas camadas: (1) `initial_prompt`/hotwords do `faster-whisper` enviesando a transcrição; (2) glossário determinístico de correção fuzzy (Levenshtein) rodando **entre** `SPEECH_RECOGNITION` e `TRANSCRIPT_CLEANING`.
+- **Por quê:** Corrigir na fonte é mais barato que corrigir depois; mesmo padrão D2.
+- **Como não regredir:** O glossário nunca inclui palavras ambíguas do português comum — só termos técnicos do sistema, sem risco de falso positivo.
+- **Implementado:** `glossaries/{vampiro,lobisomem,mago}.md`, `utils/glossary_correction.py`, `WHISPER_INITIAL_PROMPT`/`GLOSSARY_NAME`.
+
+### D21 — Detecção de pico de energia de áudio como sinal complementar para candidatos a short
+
+- **Contexto:** Sessão de RPG tem assinatura acústica de clímax (rolagem, gritaria) — sinal de emoção real, mais barato que inferência textual.
+- **Decisão:** Calcular energia RMS (determinístico, sem LLM) e usar picos como **segundo critério** ao lado da identificação narrativa (D18) — somando, não substituindo.
+- **Como não regredir:** Nunca usar picos de RMS como único critério (ruído/tosse também gera pico) — sempre cruzar com a identificação narrativa.
+- **Implementado:** `services/audio_analysis_service.py` (stdlib `wave`, sem numpy); picos entram como contexto no prompt de shorts por capítulo.
+
+### D22 — Classificação de tipo de conteúdo direcionando critério de curadoria de shorts
+
+- **Contexto:** Sessão, mecânica, lore e podcast têm estruturas de "bom corte" diferentes; um critério único de "short viral" falha em conteúdo educativo/lore.
+- **Decisão:** Campo `content_type` manual (sessão/mecânica/lore/podcast) com critério de curadoria distinto por tipo no `shorts_prompt.md`.
+- **Como não regredir:** Ao adicionar novo tipo de vídeo, definir o critério específico antes de rodar o pipeline — não assumir que o critério de sessão serve para tudo.
+- **Implementado:** `CONTENT_TYPE` no Settings + seções condicionais no prompt.
+
+### D23 — Contexto de campanha persistente entre episódios
+
+- **Contexto:** O canal produz uma campanha contínua, mas o agente trata cada execução como unidade isolada.
+- **Decisão:** Arquivo `campanha/<nome_da_cronica>.md` (PCs/NPCs recorrentes, resumo dos eventos) injetado como contexto extra na **fase de consolidação** do D17.
+- **Como não regredir:** O arquivo de campanha é atualizado **manualmente** pelo usuário entre episódios — não é gerado automaticamente na V1.
+- **Implementado:** `campanha/exemplo_cronica.md` + `CAMPAIGN_CONTEXT_FILE`.
+
+### D24 — Vocabulário controlado de hashtags por linha de jogo
+
+- **Contexto:** Hashtags geradas livremente são inconsistentes entre episódios, prejudicando descoberta/agrupamento.
+- **Decisão:** Lista curada por linha de jogo, da qual o LLM escolhe, complementando com 1-2 tags livres específicas do episódio.
+- **Como não regredir:** Não deixar a lista controlada crescer sem curadoria manual — o valor está em ser pequena e consistente.
+- **Implementado:** `glossaries/hashtags_vampiro.md` + `HASHTAGS_FILE` + instrução no prompt de consolidação.
+
+### D25 — Extensão do MARKER_DETECTION para conteúdo fora de personagem (OOC)
+
+- **Contexto:** Sessão real tem momentos fora do jogo (pausa, discussão de regra, comentário) que não devem ir para o vídeo público nem para shorts.
+- **Decisão:** Segundo par de palavras-chave (`OOC_PAUSE_WORD`/`OOC_RESUME_WORD`, ex. `"pausa"`/`"retomando"`), tratado separadamente do corte de erro de fala. OOC é excluído do corte físico **e** da curadoria de shorts.
+- **Como não regredir:** Os dois pares são listas **distintas e configuráveis** — nunca misturar a lógica, pois o tratamento downstream difere (erro de fala é removido do vídeo final; OOC sempre excluído de shorts).
+- **Nota:** `MARKER_CUT_WORD` confirmado como `"corte"` no Settings (o `"cor"` do `RESUMO_PLANEJAMENTO.md` era erro de digitação do resumo).
+- **Implementado:** `MarkerPair.kind` (`erro_fala`/`ooc`), detecção dupla em `marker_detection`, exclusão de OOC na curadoria.
+
+### D26 (proposta, não validada) — Paralelizar chunks do map-reduce (D17) contra Ollama local
+
+- **Proposta:** processar os chunks em paralelo contra o Ollama (reaproveitando o padrão `ThreadPoolExecutor`), em vez de sequencial.
+- **Por que não é decisão fechada:** falta validar quanta concorrência a GPU de 4GB aguenta antes de virar padrão (risco de OOM ou de degradar o tempo por chamada a ponto de anular o ganho).
+- **Ação necessária para fechar:** testar 2-3 chamadas concorrentes ao Ollama local em chunks reais, medir VRAM e tempo por chamada, comparar com sequencial.
+
+---
+
 ## 2. Bugs Já Corrigidos (origem: Changelog v1.1)
 
 Estes já eram problemas **reais identificados em código de exemplo**, corrigidos antes do início da implementação. Tratá-los como "hipotéticos" é o erro mais fácil de cometer — eles já se manifestaram uma vez.

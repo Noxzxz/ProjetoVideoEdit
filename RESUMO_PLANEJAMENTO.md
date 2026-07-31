@@ -141,6 +141,8 @@ Estes foram descobertos no **teste 2** (vídeo 2h45min) — **ainda pendentes**:
 
 ### [PENDENTE 1] CRÍTICO — Content Intelligence só vê o começo de vídeos longos
 
+> **Status: ✅ RESOLVIDO por D17** (chunking map-reduce + consolidação) — ver `Registro_Decisoes_e_Bugs_Lessons_Learned.md`.
+
 **Arquivo:** `agents/content_intelligence/agent.py:30`
 
  **Sintoma:** Para o vídeo de 2h45min, todos os capítulos ficaram entre 0-15min e todos os 4 shorts entre 11-14min. O restante dos 2h30min do vídeo foi *completamente ignorado*.
@@ -154,6 +156,8 @@ Estes foram descobertos no **teste 2** (vídeo 2h45min) — **ainda pendentes**:
 ---
 
 ### [PENDENTE 2] GRAVE: Thumbnails levam 13min22s para 5 frames (298 mil frames sequential)
+
+> **Status: ✅ OBSOLETO/resolvido por REMOÇÃO (D16)** — a etapa de thumbnail foi removida inteiramente (conteúdo *audio-first*), não otimizada. Ver D16 no registro oficial.
 
 **Arquivos:** `services/opencv_service.py:35` + `agents/thumbnail_frames/agent.py`
 
@@ -239,7 +243,7 @@ ProjetoVideoEdit/
 | `SHORTS_MIN_DURATION_SECONDS` | `15` | Duração mínima por short |
 | `SILENCE_PRE_PADDING_MS` | `100` | ..segundos antes do começo do fala |
 | `SILENCE_POST_PADDING_MS` | `150` |..segundos depois do fim da fala |
-| `MARKER_CUT_WORD` | `"cor"` | Palavra que indica início de corte |
+| `MARKER_CUT_WORD` | `"corte"` | Palavra que indica início de corte (o `"cor"` abaixo era erro de digitação deste resumo — confirmado como `corte` no Settings) |
 | `MARKER_RESUME_WORD` | `"início"` | Palavra que indica retomar |
 
 ---
